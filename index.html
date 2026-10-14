@@ -109,6 +109,30 @@
 <h1>BeKaffe News</h1>
 
 <!-- CONTENT -->
+<p class="date">Wednesday, October 14th, 2026 (evening)</p>
+<div class="entry">
+  <p><b>Java text now looks like Haiku text.</b> Haiku's own font engine measures and
+  draws all Java text, so it is smooth and evenly spaced, in Haiku's fonts. Chinese,
+  Japanese and other scripts come from Haiku's font fallback.</p>
+
+  <p><b>A new GNU Classpath.</b> BeKaffe now uses
+  <a href="https://github.com/ingelabs/classpath">ingelabs/classpath</a>, a maintained
+  continuation of GNU Classpath with about 200 more fixes than the 0.98 release. It builds
+  natively on Haiku, Kaffe runs on it without changes to the VM, and all our tests pass.</p>
+
+  <p><b>Back upstream.</b> Kaffe's own repository is archived, but GNU Classpath is alive
+  again, so the Classpath half of this work is now offered there:
+  <a href="https://github.com/ingelabs/classpath/pull/57">drag and drop fixes</a>,
+  <a href="https://github.com/ingelabs/classpath/pull/58">AWT fixes</a>,
+  <a href="https://github.com/ingelabs/classpath/pull/59">build and run-time fixes</a>,
+  <a href="https://github.com/ingelabs/classpath/pull/60">Haiku support</a> and
+  <a href="https://github.com/ingelabs/classpath/pull/61">the Haiku toolkit and sound
+  mixer</a>.</p>
+
+  <p><span class="warn">STILL TO DO:</span> shapes and images are still drawn in Java,
+  which is slow on Kaffe's interpreter.</p>
+</div>
+
 <p class="date">Wednesday, October 14th, 2026</p>
 <div class="entry">
   <p>Yesterday's list of things to do is done too:</p>
