@@ -6,6 +6,7 @@
 //   msgtest im "<title>"               a Japanese input method session
 //   msgtest clip-image                 put a picture on the clipboard
 //   msgtest clip-dump                  show what is on the clipboard
+//   msgtest close SIGNATURE "<title>"   close a window of any application
 #include <Application.h>
 #include <Bitmap.h>
 #include <Clipboard.h>
@@ -177,6 +178,30 @@ private:
         snooze(1500000);
         return 0;
       }
+    if (strcmp(cmd, "close") == 0 && fArgc == 4)
+      {
+        // Ask a window of another application to quit, by title.
+        BMessenger app(fArgv[2]);
+        for (int32 i = 0; i < 50; i++)
+          {
+            BMessage get(B_GET_PROPERTY), reply;
+            get.AddSpecifier("Title");
+            get.AddSpecifier("Window", i);
+            BString t;
+            if (app.SendMessage(&get, &reply, 2000000, 2000000) != B_OK
+                || reply.FindString("result", &t) != B_OK)
+              break;
+            if (t != fArgv[3])
+              continue;
+            BMessage quit(B_QUIT_REQUESTED);
+            quit.AddSpecifier("Window", i);
+            app.SendMessage(&quit);
+            printf("closed \"%s\"\n", fArgv[3]);
+            return 0;
+          }
+        fprintf(stderr, "no window \"%s\"\n", fArgv[3]);
+        return 1;
+      }
     if (strcmp(cmd, "clip-image") == 0)
       {
         // 64 x 48, green with a blue corner pixel, as ShowImage copies.
@@ -218,7 +243,7 @@ private:
         return 0;
       }
     fprintf(stderr, "usage: msgtest list | click TITLE X Y | im TITLE"
-                    " | clip-image | clip-dump\n");
+                    " | clip-image | clip-dump | close SIG TITLE\n");
     return 2;
   }
 

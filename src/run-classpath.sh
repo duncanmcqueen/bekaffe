@@ -1,10 +1,12 @@
 #!/bin/bash
-# Run a class with Kaffe and the GNU Classpath build that includes the
+# Run a class with Kaffe and a GNU Classpath build that includes the
 # Haiku peer. No overlay and no -Dawt.toolkit: Classpath's defaults apply.
+# CP_INSTALL: the Classpath install directory; KAFFE_DIR: the Kaffe tree.
 # Usage: run-classpath.sh <Class> [args...]
 B=/boot/home/Projects/bekaffe
-I=$B/cp-haiku/install
-cd $B/checkout/kaffe-latest
+I=${CP_INSTALL:-$B/cp-ingelabs/install}
+K=${KAFFE_DIR:-$B/checkout/kaffe-ingelabs}
+cd $K
 VMJ=libraries/javalib/vmspecific/kaffe-vminterface.jar
 export KAFFEHOME=$B/cp-install
 export KAFFELIBRARYPATH="$I/lib/classpath:$PWD/kaffe/kaffevm/.libs"

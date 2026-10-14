@@ -3,6 +3,37 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-14, evening): switched to ingelabs/classpath
+
+- **Classpath:** `kaffe-awt/cp-ingelabs` = clone of github.com/ingelabs/classpath (base
+  0406074a5, GNU Classpath 0.99 + ~200 commits), branch `haiku` with the rebased patch (one
+  commit). Patch in the repo: `patches/classpath-ingelabs/`. 6 files needed hand rebasing
+  (whitespace/context drift only); all our Classpath bug fixes are still needed upstream.
+  The fork generates JNI headers at build time (`include/.gitignore` has `gnu_*.h`), so
+  the patch has no headers. VM build: `/boot/home/Projects/bekaffe/cp-ingelabs/{src,build,
+  install}` via `src/build-classpath.sh` with `CP_DIR=... CP_CONFIGURE='--enable-default-
+  preferences-peer=file --disable-tools'`; first build worked.
+- **Kaffe:** `checkout/kaffe-ingelabs` is a copy of `kaffe-latest` rebuilt against the new
+  glibj (`checkout/build-kaffe-ingelabs.sh`). Pitfalls: editing `config.status` makes make
+  rerun it, which brings back the original configure placeholders (`/tmp/fakejavac/fastjar`,
+  `/tmp/zzip-stub`) and a static-only `libtool`. Fix: copy the hand-fixed Makefiles and
+  `libtool` from `kaffe-latest`, sed only the paths (glibj, `Klasses.jar` -> new glibj,
+  tree, prefix), touch them, delete `.la` files built by the bad libtool. kaffeh's headers
+  for Thread/String/ClassLoader are identical to 0.98's (same field layouts).
+- **Run:** `cp-ingelabs/run-ingelabs.sh` (= `src/run-classpath.sh` defaults).
+- **Tests on the fork build, all passing:** `CliTest` (0.98 fails BigDecimal, the 0.99 API
+  and process exit codes / missing-program errors); clipboard text and pictures both ways;
+  minimize/zoom; sound timing; modal blocking; both IM paths; PrinterJob printing (Haiku
+  printer job by default); AwtWidgets and FontTest. DnD was not retested live on the fork
+  (needs the real mouse; the peer and Classpath DnD code are the same).
+- `String.format("%.3f", Math.PI)` gives an empty string on both Classpaths (not
+  investigated).
+- **Test battery:** `cp-ingelabs/test-ingelabs.sh` (logs in `cp-ingelabs/tests`), no
+  mouse. Kill Java with `grep "/kaffe/kaffe"`: ps cuts command names, so longer patterns
+  miss and old runs pile up (their windows confuse msgtest, which talks to the first app).
+- Old 0.98 Classpath build: a failed exec leaves a crashed Kaffe copy in the debugger
+  (fixed in the fork's process code).
+
 ## UPDATE (2026-10-14, later): Haiku draws and measures all Java text
 
 - `HaikuFontPeer` (ClasspathFontPeer) wraps a BFont (`fontOpen(family, face)`). Logical
@@ -105,7 +136,7 @@
   `BSoundPlayer` tone (`tools/tonetest.cpp`), so the VM's AC'97 output is silent (mixer
   muted or driver issue). Not investigated, to leave the shared VM's settings alone.
 - **Classpath build:** `cp-work/classpath-0.98` is a git repo (pristine 0.98 + one commit).
-  Patch: `github/bekaffe/patches/classpath/0001-haiku-peer-and-fixes.patch`. It adds the
+  Patch: `github/bekaffe/patches/classpath-0.98/0001-haiku-peer-and-fixes.patch`. It adds the
   sources, `native/jni/haiku-peer/Makefile.am`, `configure --enable-haiku-peer` (default on
   `haiku*`; also sets the default toolkit and `@HAIKU_MIXER_PROVIDER@`),
   `AC_SEARCH_LIBS(inet_pton, nsl network)`, `fonts-haiku.properties` (`OpenTypeFontPeer`

@@ -87,12 +87,13 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/resource/gnu/java/awt/font/fonts.properties` | Maps the Java logical fonts to the DejaVu fonts on Haiku. |
 | `src/applet/bekaffe/applet/` | Kaffe 1.0's AppletViewer, changed to work with Classpath (see below). |
 | `src/demos/` | Demo applets for the screenshots. |
-| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. |
+| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. `CliTest` checks a Kaffe + Classpath build without a GUI. |
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
 | `patches/kaffe/` | The Kaffe port to Haiku x86_64 (see below). |
-| `patches/classpath/` | Adds the peer to GNU Classpath 0.98, with fixes that Kaffe on Haiku needs. |
+| `patches/classpath-ingelabs/` | Adds the peer to [ingelabs/classpath](https://github.com/ingelabs/classpath), with fixes that Kaffe on Haiku needs. |
+| `patches/classpath-0.98/` | The same for the GNU Classpath 0.98 release. |
 | `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. `msgtest.cpp` sends clicks and input method events straight to a Java window, and puts pictures on the clipboard. |
 | `screenshots/` | The 2026 screenshots, the comparisons, and the 1999 originals (`1999/`). |
 | `docs/development-notes.md` | Detailed working notes: design, Kaffe and Classpath bugs, and how the screenshots were made. |
@@ -101,21 +102,33 @@ Java drag source whether the drop was accepted (it reports a copy).
 
 You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
 
-1. Kaffe: clone `https://github.com/kaffe/kaffe`, apply `patches/kaffe/0001-haiku-x86_64-port.patch`
-   and `0002-regenerated-configure.patch` with `git apply`, then configure and build with the
-   interpreter engine.
-2. GNU Classpath 0.98: apply `patches/classpath/0001-haiku-peer-and-fixes.patch` with
-   `git apply`, then run `autoreconf -fi` (on any machine with autoconf, automake and
-   libtool; Haiku does not need libtool installed). Configure on Haiku with
-   `--enable-jni --disable-gtk-peer --disable-gconf-peer --disable-plugin --disable-gjdoc
-   --disable-examples` and build with `make`. `src/build-classpath.sh` does this (it also
-   fixes file times if the Haiku clock is behind the machine that ran autoreconf). The
-   Haiku peer is built by default on Haiku and is the default AWT toolkit;
-   `libhaikupeer.so` is in the native library directory with the other Classpath JNI
-   libraries.
-3. Run: put Classpath's `glibj.zip` on Kaffe's boot class path and the native library
-   directory on `KAFFELIBRARYPATH`, then run any AWT, Swing or sound program, with no extra
-   options. `src/run-classpath.sh <Class>` does this.
+1. GNU Classpath: clone [ingelabs/classpath](https://github.com/ingelabs/classpath) (a
+   maintained continuation of GNU Classpath 0.99; tested at commit 0406074a5), apply
+   `patches/classpath-ingelabs/0001-haiku-peer-and-fixes.patch` with `git am`, then run
+   `autoreconf -fi` on any machine with autoconf, automake, libtool and gettext (Haiku does
+   not need libtool installed). Copy the tree to Haiku and build it with
+   `src/build-classpath.sh`: set `CP_DIR` to the build directory and
+   `CP_CONFIGURE="--enable-default-preferences-peer=file --disable-tools"`. The script
+   configures with `--enable-jni --disable-gtk-peer --disable-gconf-peer --disable-plugin
+   --disable-gjdoc --disable-examples` and fixes file times if the Haiku clock is behind
+   the machine that ran autoreconf. The Haiku peer is built by default on Haiku and is the
+   default AWT toolkit; `libhaikupeer.so` is in the native library directory with the other
+   Classpath JNI libraries.
+2. Kaffe: clone `https://github.com/kaffe/kaffe`, apply `patches/kaffe/0001-haiku-x86_64-port.patch`
+   and `0002-regenerated-configure.patch` with `git apply`, and configure with the
+   interpreter engine and `--with-classpath-classes=<Classpath>/share/classpath/glibj.zip`.
+   Kaffe makes C headers from the Classpath classes (kaffeh) and compiles its
+   `kaffe-vminterface.jar` against them, so build Kaffe after Classpath.
+3. Run: `src/run-classpath.sh <Class>` (set `CP_INSTALL` and `KAFFE_DIR` if your
+   directories differ). It puts Classpath's `glibj.zip` on Kaffe's boot class path and the
+   native library directory on `KAFFELIBRARYPATH`. AWT, Swing and sound programs need no
+   extra options.
+
+The older GNU Classpath 0.98 release also works: use
+`patches/classpath-0.98/0001-haiku-peer-and-fixes.patch` with the 0.98 tarball. The
+ingelabs version has about 200 more fixes (for example process spawning, `BigDecimal`,
+`java.util.Objects` and `java.io.Console`); `src/test/CliTest.java` passes there and fails
+three checks on 0.98.
 
 For development there is a quicker loop that does not rebuild Classpath: copy `src/` to
 the Haiku machine, set the paths at the top of `src/build.sh` and `src/run.sh` (they use
@@ -138,7 +151,8 @@ The Kaffe patches are working-tree snapshots, not clean upstream patches.
   The patch also has local workarounds: the version string is set to "Interpreter", and the
   shared library suffix is set to `.so`.
 - `0002-regenerated-configure.patch`: the `configure` script after the Haiku changes.
-- `patches/classpath/0001-haiku-peer-and-fixes.patch` is a clean patch for Classpath 0.98.
+- `patches/classpath-ingelabs/0001-haiku-peer-and-fixes.patch` (and the same change for
+  0.98 in `patches/classpath-0.98/`) is a clean patch for GNU Classpath.
   It adds the peer, the sound mixer and `native/jni/haiku-peer/`, the `--enable-haiku-peer`
   configure switch (it also makes HaikuToolkit the default toolkit and looks for socket
   functions in `libnetwork`), and `fonts-haiku.properties` (`OpenTypeFontPeer` now reads
