@@ -1,6 +1,6 @@
-From 84431699f04e3a3dd76dc03efd2148c33d4a8906 Mon Sep 17 00:00:00 2001
+From 7f58cd9e9fd98319c242375040bb1aae6057d726 Mon Sep 17 00:00:00 2001
 From: duncanmcqueen <206344294+duncanmcqueen@users.noreply.github.com>
-Date: Wed, 14 Oct 2026 07:54:24 -0500
+Date: Wed, 14 Oct 2026 08:27:27 -0500
 Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
  Haiku
 
@@ -20,8 +20,7 @@ Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
 - lib/Makefile.am: copy the service files that configure makes, so
   out-of-tree builds get them.
 - cpnet.c: use gethostbyname_r only when its declaration is known.
-- OpenTypeFontPeer reads fonts-<os.name>.properties first; add
-  fonts-haiku.properties. Implement canDisplay() and canDisplayUpTo().
+- OpenTypeFontPeer: implement canDisplay() and canDisplayUpTo().
 - Frame.setState() set the opposite state.
 - PrinterJob.getPrinterJob() uses the java.awt.printerjob property.
 - DragSource made only one drag context and reused it for every drag.
@@ -37,7 +36,7 @@ Run autoreconf -fi after applying this patch.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  configure.ac                                  |   33 +-
- gnu/java/awt/font/OpenTypeFontPeer.java       |   20 +-
+ gnu/java/awt/font/OpenTypeFontPeer.java       |    9 +-
  gnu/java/awt/peer/haiku/HaikuButtonPeer.java  |   97 +
  .../peer/haiku/HaikuCheckboxMenuItemPeer.java |   86 +
  .../awt/peer/haiku/HaikuCheckboxPeer.java     |  185 +
@@ -99,8 +98,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../java-net/java_net_VMNetworkInterface.c    |    5 +
  native/jni/native-lib/cpnet.c                 |    7 +-
  .../javax.sound.sampled.spi.MixerProvider.in  |    1 +
- .../gnu/java/awt/font/fonts-haiku.properties  |   65 +
- 64 files changed, 13949 insertions(+), 38 deletions(-)
+ 63 files changed, 13874 insertions(+), 37 deletions(-)
  create mode 100644 gnu/java/awt/peer/haiku/HaikuButtonPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCheckboxMenuItemPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCheckboxPeer.java
@@ -148,7 +146,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 gnu/javax/sound/sampled/haiku/Pcm.java
  create mode 100644 native/jni/haiku-peer/Makefile.am
  create mode 100644 native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp
- create mode 100644 resource/gnu/java/awt/font/fonts-haiku.properties
 
 diff --git a/configure.ac b/configure.ac
 index 5c79f3cfd..72ee6513d 100644
@@ -216,35 +213,10 @@ index 5c79f3cfd..72ee6513d 100644
  native/jni/midi-alsa/Makefile
  native/jni/midi-dssi/Makefile
 diff --git a/gnu/java/awt/font/OpenTypeFontPeer.java b/gnu/java/awt/font/OpenTypeFontPeer.java
-index d8bff1199..06498b122 100644
+index d8bff1199..fc8ddafad 100644
 --- a/gnu/java/awt/font/OpenTypeFontPeer.java
 +++ b/gnu/java/awt/font/OpenTypeFontPeer.java
-@@ -38,6 +38,7 @@ exception statement from your version. */
- package gnu.java.awt.font;
- 
- 
-+import gnu.classpath.SystemProperties;
- import gnu.java.awt.peer.ClasspathFontPeer;
- import gnu.java.lang.CPStringBuilder;
- 
-@@ -87,7 +88,15 @@ public class OpenTypeFontPeer
-   static
-   {
-     fontProperties = new Properties();
--    InputStream in = OpenTypeFontPeer.class.getResourceAsStream("fonts.properties");
-+    // A system can have its own mapping, for example fonts-haiku.properties.
-+    String os = SystemProperties.getProperty("os.name", "").toLowerCase();
-+    InputStream in = null;
-+    if (os.length() > 0)
-+      in = OpenTypeFontPeer.class.getResourceAsStream("fonts-"
-+                                                     + os.replace(' ', '-')
-+                                                     + ".properties");
-+    if (in == null)
-+      in = OpenTypeFontPeer.class.getResourceAsStream("fonts.properties");
-     try
-       {
-         fontProperties.load(in);
-@@ -290,14 +299,15 @@ public class OpenTypeFontPeer
+@@ -290,14 +290,15 @@ public class OpenTypeFontPeer
  
    public boolean canDisplay(Font font, int c)
    {
@@ -14613,77 +14585,6 @@ index 03d1b5cd2..780c68060 100644
 @@ -1 +1,2 @@
  @GSTREAMER_MIXER_PROVIDER@
 +@HAIKU_MIXER_PROVIDER@
-diff --git a/resource/gnu/java/awt/font/fonts-haiku.properties b/resource/gnu/java/awt/font/fonts-haiku.properties
-new file mode 100644
-index 000000000..7e9c6769f
---- /dev/null
-+++ b/resource/gnu/java/awt/font/fonts-haiku.properties
-@@ -0,0 +1,65 @@
-+# fonts-haiku.properties -- font mapping for Haiku
-+#    Copyright (C) 2026 Free Software Foundation, Inc.
-+# 
-+# This file is part of GNU Classpath.
-+# 
-+# GNU Classpath is free software; you can redistribute it and/or modify
-+# it under the terms of the GNU General Public License as published by
-+# the Free Software Foundation; either version 2, or (at your option)
-+# any later version.
-+# 
-+# GNU Classpath is distributed in the hope that it will be useful, but
-+# WITHOUT ANY WARRANTY; without even the implied warranty of
-+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-+# General Public License for more details.
-+# 
-+# You should have received a copy of the GNU General Public License
-+# along with GNU Classpath; see the file COPYING.  If not, write to the
-+# Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-+# 02110-1301 USA.
-+# 
-+# Linking this library statically or dynamically with other modules is
-+# making a combined work based on this library.  Thus, the terms and
-+# conditions of the GNU General Public License cover the whole
-+# combination.
-+# 
-+# As a special exception, the copyright holders of this library give you
-+# permission to link this library with independent modules to produce an
-+# executable, regardless of the license terms of these independent
-+# modules, and to copy and distribute the resulting executable under
-+# terms of your choice, provided that you also meet, for each linked
-+# independent module, the terms and conditions of the license of that
-+# module.  An independent module is a module which is not derived from
-+# or based on this library.  If you modify this library, you may extend
-+# this exception to your version of the library, but you are not
-+# obligated to do so.  If you do not wish to do so, delete this
-+# exception statement from your version.
-+#
-+# Used by gnu.java.awt.font.OpenTypeFontPeer when os.name is "Haiku".
-+# Haiku ships the DejaVu fonts in /boot/system/data/fonts/ttfonts.
-+
-+DejaVuSans/p=/boot/system/data/fonts/ttfonts/DejaVuSans.ttf
-+DejaVuSans/b=/boot/system/data/fonts/ttfonts/DejaVuSans-Bold.ttf
-+DejaVuSans/bi=/boot/system/data/fonts/ttfonts/DejaVuSans-BoldOblique.ttf
-+DejaVuSans/i=/boot/system/data/fonts/ttfonts/DejaVuSans-Oblique.ttf
-+
-+DejaVuSerif/p=/boot/system/data/fonts/ttfonts/DejaVuSerif.ttf
-+DejaVuSerif/b=/boot/system/data/fonts/ttfonts/DejaVuSerif-Bold.ttf
-+DejaVuSerif/bi=/boot/system/data/fonts/ttfonts/DejaVuSerif-BoldItalic.ttf
-+DejaVuSerif/i=/boot/system/data/fonts/ttfonts/DejaVuSerif-Italic.ttf
-+
-+DejaVuSansMono/p=/boot/system/data/fonts/ttfonts/DejaVuSansMono.ttf
-+DejaVuSansMono/b=/boot/system/data/fonts/ttfonts/DejaVuSansMono-Bold.ttf
-+DejaVuSansMono/bi=/boot/system/data/fonts/ttfonts/DejaVuSansMono-BoldOblique.ttf
-+DejaVuSansMono/i=/boot/system/data/fonts/ttfonts/DejaVuSansMono-Oblique.ttf
-+
-+Dialog/a=DejaVuSans
-+DialogInput/a=DejaVuSansMono
-+Serif/a=DejaVuSerif
-+SansSerif/a=DejaVuSans
-+Monospaced/a=DejaVuSansMono
-+
-+# JDK 1.0 font names, still used by old applets.
-+TimesRoman/a=DejaVuSerif
-+Helvetica/a=DejaVuSans
-+Courier/a=DejaVuSansMono
 -- 
 2.56.0
 

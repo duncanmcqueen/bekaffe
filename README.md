@@ -124,6 +124,14 @@ You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
    native library directory on `KAFFELIBRARYPATH`. AWT, Swing and sound programs need no
    extra options.
 
+The Classpath changes are offered upstream as draft pull requests:
+[#57](https://github.com/ingelabs/classpath/pull/57) (drag and drop fixes),
+[#58](https://github.com/ingelabs/classpath/pull/58) (AWT fixes),
+[#59](https://github.com/ingelabs/classpath/pull/59) (build and run-time fixes),
+[#60](https://github.com/ingelabs/classpath/pull/60) (Haiku host support) and
+[#61](https://github.com/ingelabs/classpath/pull/61) (the Haiku toolkit and mixer).
+Together they are the same change as `patches/classpath-ingelabs/`.
+
 The older GNU Classpath 0.98 release also works: use
 `patches/classpath-0.98/0001-haiku-peer-and-fixes.patch` with the 0.98 tarball. The
 ingelabs version has about 200 more fixes (for example process spawning, `BigDecimal`,

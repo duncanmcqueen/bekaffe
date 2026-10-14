@@ -33,6 +33,15 @@
   miss and old runs pile up (their windows confuse msgtest, which talks to the first app).
 - Old 0.98 Classpath build: a failed exec leaves a crashed Kaffe copy in the debugger
   (fixed in the fork's process code).
+- **Upstream PRs (drafts, 2026-10-14):** fork `duncanmcqueen/classpath`, branches off
+  0406074a5: ingelabs/classpath #57 `fix-dnd`, #58 `fix-awt`, #59 `fix-build`, #60
+  `haiku-host`, #61 `haiku-peer` (on top of #60). Union of the five = branch `haiku` =
+  `patches/classpath-ingelabs` (the dead fonts-<os>.properties lookup was dropped).
+  `haiku-peer` builds alone, but Kaffe needs the Thread fix (#59) to start. The DCO check
+  fails: the owner must sign off. To sign off and update a branch (force push is blocked
+  for agents; the owner runs it): `cd kaffe-awt/cp-ingelabs && git checkout <branch> &&
+  git rebase --signoff <base> && git push --force-with-lease=<branch>:<old-sha> fork
+  <branch>` (base: 0406074a5; for haiku-peer use haiku-host after re-signing it).
 
 ## UPDATE (2026-10-14, later): Haiku draws and measures all Java text
 
