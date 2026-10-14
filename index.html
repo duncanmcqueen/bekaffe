@@ -109,6 +109,42 @@
 <h1>BeKaffe News</h1>
 
 <!-- CONTENT -->
+<p class="date">Wednesday, October 14th, 2026 (night)</p>
+<div class="entry">
+  <p><b>Shapes and images are now drawn in native code.</b> Until now, GNU Classpath drew
+  every line, oval, polygon and picture in Java, which is slow on Kaffe's interpreter.
+  The Haiku peer now draws them in C++: lines, rectangles, filled and outlined shapes
+  (with and without antialiasing), translucent colours, gradients, and pictures that are
+  scaled or rotated. Most operations are 10 to 600 times faster. A rotated picture took
+  three seconds and now takes a fifth of a millisecond.</p>
+
+  <div class="shot">
+    <img src="screenshots/native-speed.png" alt="Bar chart of time per drawing operation, Java against native code" width="820" height="550">
+    <p>Time per drawing operation on Kaffe, before (Java) and after (native).</p>
+  </div>
+
+  <div class="shot">
+    <img src="screenshots/native-demos.png" alt="Curve, Dinosaur wireframe, Animator and SimpleGraph applets on Haiku" width="964" height="628">
+    <p>The demo applets with native drawing.</p>
+  </div>
+
+  <div class="shot">
+    <img style="max-width:530px;margin:0 auto" src="screenshots/native-curve.png" alt="Curve applet with four points and a Hermite curve" width="530" height="350">
+    <p>The Curve applet with a Hermite curve through four points.</p>
+  </div>
+
+  <div class="shot">
+    <img style="max-width:664px;margin:0 auto" src="screenshots/native-fonts.png" alt="Font test window with Haiku fonts, rotated text and gradient text" width="664" height="424">
+    <p>Haiku fonts in Java. The red lines show that measured and drawn widths agree.
+    The rotated and gradient text use the new native shape code.</p>
+  </div>
+
+  <p>This work is also offered to GNU Classpath, as part of
+  <a href="https://github.com/ingelabs/classpath/pull/61">the Haiku toolkit pull request</a>.
+  To compare with the old Java drawing, start a program with
+  <code>-Dgnu.java.awt.peer.haiku.javaDrawing=true</code>.</p>
+</div>
+
 <p class="date">Wednesday, October 14th, 2026 (evening)</p>
 <div class="entry">
   <p><b>Java text now looks like Haiku text.</b> Haiku's own font engine measures and
