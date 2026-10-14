@@ -38,8 +38,12 @@ the 1999 screenshots show.
 - Swing (Metal look and feel).
 - The AWT 1.0 event model (`action()`, `handleEvent()`, `mouseUp()` and others). Old applets
   need it.
-- Drawing is done in Java (`HaikuGraphics2D`) into a back buffer that is copied to a
-  `BBitmap`. XOR mode is supported.
+- Drawing goes into a back buffer that is copied to a `BBitmap`. The common operations
+  are native code (`HaikuRaster`): rectangles, lines, shapes with or without
+  anti-aliasing, gradients, images through any transform, and `copyArea`. They are 10 to
+  thousands of times faster than the generic Java code on Kaffe's interpreter (see
+  `src/test/DrawBench.java`). Other cases use GNU Classpath's Java code. XOR mode is
+  supported.
 - Text uses Haiku's fonts (`HaikuFontPeer`): Haiku measures it (BFont advances) and the
   app_server draws it, so it is hinted, anti-aliased and spaced like the rest of Haiku, and
   Haiku's font fallback covers scripts such as Chinese and Japanese. Dialog and SansSerif
@@ -73,8 +77,9 @@ the 1999 screenshots show.
 - GNU Classpath build integration: a patch adds the peer to Classpath 0.98, with
   `configure --enable-haiku-peer` (on by default on Haiku).
 
-Not done yet: shapes and images are still rendered in Java, which is slow on Kaffe's
-interpreter. Drag and drop to other applications cannot tell the
+Not done yet: with a clip that is not a rectangle, images are clipped to the bounding
+rectangle of the clip, and rotated images are not drawn (GNU Classpath's generic image
+code). Drag and drop to other applications cannot tell the
 Java drag source whether the drop was accepted (it reports a copy).
 
 ## Contents
@@ -87,7 +92,7 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/resource/gnu/java/awt/font/fonts.properties` | Maps the Java logical fonts to the DejaVu fonts on Haiku. |
 | `src/applet/bekaffe/applet/` | Kaffe 1.0's AppletViewer, changed to work with Classpath (see below). |
 | `src/demos/` | Demo applets for the screenshots. |
-| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. `CliTest` checks a Kaffe + Classpath build without a GUI. |
+| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. `CliTest` checks a Kaffe + Classpath build without a GUI. `DrawBench` times drawing operations; `ClipTest` draws through a clip that is not a rectangle. |
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
@@ -104,7 +109,7 @@ You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
 
 1. GNU Classpath: clone [ingelabs/classpath](https://github.com/ingelabs/classpath) (a
    maintained continuation of GNU Classpath 0.99; tested at commit 0406074a5), apply
-   `patches/classpath-ingelabs/0001-haiku-peer-and-fixes.patch` with `git am`, then run
+   the patches in `patches/classpath-ingelabs/` with `git am`, then run
    `autoreconf -fi` on any machine with autoconf, automake, libtool and gettext (Haiku does
    not need libtool installed). Copy the tree to Haiku and build it with
    `src/build-classpath.sh`: set `CP_DIR` to the build directory and
@@ -159,8 +164,9 @@ The Kaffe patches are working-tree snapshots, not clean upstream patches.
   The patch also has local workarounds: the version string is set to "Interpreter", and the
   shared library suffix is set to `.so`.
 - `0002-regenerated-configure.patch`: the `configure` script after the Haiku changes.
-- `patches/classpath-ingelabs/0001-haiku-peer-and-fixes.patch` (and the same change for
-  0.98 in `patches/classpath-0.98/`) is a clean patch for GNU Classpath.
+- `patches/classpath-ingelabs/` (two commits: the peer and fixes, then native drawing)
+  is a clean patch series for GNU Classpath. `patches/classpath-0.98/` is the older state
+  of the same work (without native drawing) for the 0.98 release.
   It adds the peer, the sound mixer and `native/jni/haiku-peer/`, the `--enable-haiku-peer`
   configure switch (it also makes HaikuToolkit the default toolkit and looks for socket
   functions in `libnetwork`), and `fonts-haiku.properties` (`OpenTypeFontPeer` now reads

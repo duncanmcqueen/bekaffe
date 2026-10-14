@@ -1,7 +1,7 @@
 From 7f58cd9e9fd98319c242375040bb1aae6057d726 Mon Sep 17 00:00:00 2001
 From: duncanmcqueen <206344294+duncanmcqueen@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 08:27:27 -0500
-Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
+Subject: [PATCH 1/2] Add the Haiku AWT and sound peer, and fixes for Kaffe on
  Haiku
 
 - gnu.java.awt.peer.haiku: an AWT toolkit with native Haiku windows,

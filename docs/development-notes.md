@@ -3,6 +3,35 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-14, night): native drawing for shapes and images
+
+- `HaikuRaster` (Java) + `native/haiku-peer/gnu_java_awt_peer_haiku_HaikuRaster.cpp`
+  work directly on the int[] pixels (GetPrimitiveArrayCritical): fillRect, 1-px
+  Bresenham lines, fillPath (flattens quad/cubic, nonzero/even-odd, non-AA by pixel
+  centres, AA with 4 sub-scanlines and exact horizontal coverage), drawPathThin (1-px
+  polylines for strokes of width <= 1, like the JDK), solid colours and linear
+  GradientPaint (user space via the inverse transform), drawImage through any affine
+  transform (nearest, or bilinear by KEY_INTERPOLATION), copyArea (memmove).
+- `HaikuGraphics2D` uses it when the composite is SrcOver (any extra alpha), the paint is
+  a Color/GradientPaint, and the device clip is a rectangle (`nativeClip()`, Rectangle or
+  rectangular Area, no shear). Else the Java code of AbstractGraphics2D. Image fallbacks
+  go through `javaImage()` -> `super.drawImage(img, AffineTransform)`: the other super
+  overloads call back into this class (StackOverflowError).
+  `-Dgnu.java.awt.peer.haiku.javaDrawing=true` turns the native code off (for comparing).
+- `src/test/DrawBench.java` (args: repeat, dump dir -> PPM files; Classpath ImageIO has no
+  PNG writer). Speed-ups 4x..14000x (table in PR #61 comment and the commit message).
+  Java mode is not an exact reference: its own clear (generic fillRect) leaves parts.
+- `src/test/ClipTest.java`: with an elliptical clip images are clipped to the clip bounds
+  and rotated images are not drawn (Classpath's generic image code; the old code had the
+  same limitation).
+- `build.sh` now runs javah (headers in native/haiku-peer) and compiles both .cpp files.
+  The JNI check script of Classpath needs the first parameters on the same line as
+  `Java_..._name(` in .cpp files.
+- Upstream: commit added to ingelabs/classpath #61 (branch haiku-peer, 9dcd15540); not
+  signed off yet. Repo patches: `patches/classpath-ingelabs/0001..0002`.
+- Screen blanker: the VM screen goes black after idle; move the mouse to a corner (QMP)
+  before screenshots.
+
 ## UPDATE (2026-10-14, evening): switched to ingelabs/classpath
 
 - **Classpath:** `kaffe-awt/cp-ingelabs` = clone of github.com/ingelabs/classpath (base

@@ -12,8 +12,13 @@ $JAVAC -source 1.6 -target 1.6 -Xlint:none -nowarn -bootclasspath $GLIBJ \
   -d classes gnu/java/awt/peer/haiku/*.java gnu/javax/sound/sampled/haiku/*.java 2>&1 | grep -v "bootstrap class path" || true
 ls classes/gnu/java/awt/peer/haiku/HaikuToolkit.class >/dev/null
 cp -r resource/gnu resource/META-INF classes/
+# JNI headers for the native code.
+${JAVAC%javac}javah -jni -d native/haiku-peer -bootclasspath classes:$GLIBJ \
+  gnu.java.awt.peer.haiku.HaikuNative gnu.java.awt.peer.haiku.HaikuRaster \
+  gnu.javax.sound.sampled.haiku.HaikuAudio
 g++ -shared -fPIC -O2 -Wall -Wno-unused-parameter -I$KINC \
-  -o lib/libhaikupeer.so native/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp -lbe -ltracker -lmedia -ltranslation
+  -o lib/libhaikupeer.so native/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp \
+  native/haiku-peer/gnu_java_awt_peer_haiku_HaikuRaster.cpp -lbe -ltracker -lmedia -ltranslation
 mkdir -p testclasses
 $JAVAC -source 1.6 -target 1.6 -Xlint:none -nowarn -bootclasspath $GLIBJ \
   -d testclasses test/*.java 2>&1 | grep -v "bootstrap class path" || true
