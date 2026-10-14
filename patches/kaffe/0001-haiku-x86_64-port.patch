@@ -1,0 +1,271 @@
+diff --git a/config/config-signal.h b/config/config-signal.h
+index b02810e..b46fb8c 100644
+--- a/config/config-signal.h
++++ b/config/config-signal.h
+@@ -16,6 +16,12 @@
+ #include "config-std.h"
+ #include <signal.h>
+ 
++/* Haiku (and some other systems) name SIGIO SIGPOLL. */
++#if !defined(SIGIO) && defined(SIGPOLL)
++#define SIGIO SIGPOLL
++#endif
++
++/* This macro may not exist - define it if necessary */
+ /* This macro may not exist - define it if necessary */
+ #if !defined(HAVE_SIGEMPTYSET)
+ #define sigemptyset(s)          (*(s) = 0)
+diff --git a/config/config.alias b/config/config.alias
+index 209dc93..b773fc2 100644
+--- a/config/config.alias
++++ b/config/config.alias
+@@ -47,6 +47,8 @@ sunos4*)	Khost_os=sunos4 ;;
+ sysv*)		Khost_os=univel_svr4 ;;
+ ultrix4*)	Khost_os=ultrix4 ;;
+ uclinux*)	Khost_os=uclinux ;;
+-interix*)	Khost_os=interix6 ;;
++interix*)		Khost_os=interix6 ;;
++haiku*)	Khost_os=haiku ;;
++beos*)		Khost_os=haiku ;;
+ 
+ esac
+diff --git a/config/x86_64/sysdepCallMethod.h b/config/x86_64/sysdepCallMethod.h
+index 6476c0c..a9d7d26 100644
+--- a/config/x86_64/sysdepCallMethod.h
++++ b/config/x86_64/sysdepCallMethod.h
+@@ -187,10 +187,31 @@ static inline void sysdepCallMethod(callMethodInfo* call)
+         break;
+         
+       case 1:
+-        if (call->rettype == 'F')
++        /* The x86-64 ABI only defines the low 8/16 bits of %eax for
++           jboolean/jbyte/jchar/jshort returns, so call through a pointer
++           of the right type and let the compiler extend the value.
++           Reading all of %eax made e.g. VMClass.isPrimitive() return
++           true for every class.  */
++        switch (call->rettype) {
++        case 'F':
+           call->ret->f = ((jfloat (*)(ARG_TYPES))(func))(ARG_LIST);
+-        else /* Must be 32-bit or smaller int.  */
++          break;
++        case 'Z':
++          call->ret->i = ((jboolean (*)(ARG_TYPES))(func))(ARG_LIST);
++          break;
++        case 'B':
++          call->ret->i = ((jbyte (*)(ARG_TYPES))(func))(ARG_LIST);
++          break;
++        case 'C':
++          call->ret->i = ((jchar (*)(ARG_TYPES))(func))(ARG_LIST);
++          break;
++        case 'S':
++          call->ret->i = ((jshort (*)(ARG_TYPES))(func))(ARG_LIST);
++          break;
++        default: /* Must be a 32-bit int or a reference.  */
+           call->ret->i = ((jint (*)(ARG_TYPES))(func))(ARG_LIST);
++          break;
++        }
+         break;
+ 
+       default:
+diff --git a/include/native.h b/include/native.h
+index 08e4a84..1666788 100644
+--- a/include/native.h
++++ b/include/native.h
+@@ -50,6 +50,7 @@ typedef struct Hjava_lang_Object {
+         void*       finalizer_call;
+ 	/* Data follows on immediately */
+ } Hjava_lang_Object;
++#define Hjava_lang_Object_defined
+ 
+ /* Turn a handle into the real thing */
+ #define	unhand(o)	(o)
+diff --git a/include/system.h b/include/system.h
+index a44b341..5fb4c2c 100644
+--- a/include/system.h
++++ b/include/system.h
+@@ -15,7 +15,7 @@
+ #ifndef __system_h
+ #define __system_h
+ 
+-#if defined(unix) || defined(__unix__) || defined(__BEOS__) || defined(_AIX) || defined(__NetBSD__) || defined(__APPLE__) || defined(__uclinux__) || defined(__INTERIX)
++#if defined(unix) || defined(__unix__) || defined(__BEOS__) || defined(__HAIKU__) || defined(_AIX) || defined(__NetBSD__) || defined(__APPLE__) || defined(__uclinux__) || defined(__INTERIX)
+ #define	file_separator		"/"
+ #define	path_separator		":"
+ #define	line_separator		"\n"
+diff --git a/kaffe/kaffe/version.c b/kaffe/kaffe/version.c
+index 5278173..431bc3f 100644
+--- a/kaffe/kaffe/version.c
++++ b/kaffe/kaffe/version.c
+@@ -53,7 +53,7 @@ printShortVersion(void)
+ 			"with ABSOLUTELY NO WARRANTY.\n\n"));
+ 
+ 	fprintf(versionfd, _("Engine: %s   Version: %s   Java Version: %s\n"),
+-		engine_name, PACKAGE_VERSION, JAVA_VERSION_STRING);
++		"Interpreter", PACKAGE_VERSION, JAVA_VERSION_STRING);
+ 	fprintf(versionfd, _("Heap defaults: minimum size: %d MB, maximum size: unlimited\n"),
+ 		MIN_HEAPSIZE / (1024*1024)); 
+ 	fprintf(versionfd, _("Stack default size: %d KB\n"), THREADSTACKSIZE / 1024);
+diff --git a/kaffe/kaffeh/java_lang_Object.h b/kaffe/kaffeh/java_lang_Object.h
+index 23723fc..4382e68 100644
+--- a/kaffe/kaffeh/java_lang_Object.h
++++ b/kaffe/kaffeh/java_lang_Object.h
+@@ -1,21 +1,5 @@
+-/*
+- * java_lang_Object.h
+- *
+- * Placeholder object type for Kaffeh.  Kaffeh never
+- * uses this type, so its layout and format are irrelevant.
+- * (Kaffeh is used to create the real version.)
+- *
+- * Copyright (c) 2002.  Pat Tullmann <pat@tullmann.org>
+- *	
+- * See the file "license.terms" for information on usage and redistribution 
+- * of this file. 
+- */
+-
+-#ifndef KAFFEH_JAVA_LANG_OBJECT_H
+-#define KAFFEH_JAVA_LANG_OBJECT_H
+-
+-typedef struct Hjava_lang_Object {
+-	
+-} Hjava_lang_Object;
+-
+-#endif /*KAFFEH_JAVA_LANG_OBJECT_H*/
++#ifndef KAFFEH_java_lang_Object_H
++#define KAFFEH_java_lang_Object_H
++/* The real definition is in include/native.h */
++#include "native.h"
++#endif
+diff --git a/kaffe/kaffevm/baseClasses.h b/kaffe/kaffevm/baseClasses.h
+index 2f8a0a6..1d7f1ed 100644
+--- a/kaffe/kaffevm/baseClasses.h
++++ b/kaffe/kaffevm/baseClasses.h
+@@ -12,8 +12,8 @@
+ #ifndef __baseclasses_h
+ #define __baseclasses_h
+ 
+-#include "object.h"
+ #include "native.h"
++#include "object.h"
+ 
+ #define	STRINGCLASS	"java/lang/String"
+ #define	OBJECTCLASS	"java/lang/Object"
+diff --git a/libraries/clib/native/Runtime.c b/libraries/clib/native/Runtime.c
+index 05ce288..449f9b9 100644
+--- a/libraries/clib/native/Runtime.c
++++ b/libraries/clib/native/Runtime.c
+@@ -7,6 +7,7 @@
+  * See the file "license.terms" for information on usage and redistribution 
+  * of this file. 
+  */
++#include <ltdl.h>
+ 
+ #include "config.h"
+ #include "config-std.h"
+@@ -29,7 +30,7 @@
+ #endif
+ 
+ #ifndef LIBRARYSUFFIX
+-#define LIBRARYSUFFIX	LTDL_SHLIB_EXT
++#define LIBRARYSUFFIX	".so"
+ #endif
+ 
+ extern jboolean runFinalizerOnExit;
+diff --git a/libraries/javalib/vmspecific/java/lang/reflect/Method.java b/libraries/javalib/vmspecific/java/lang/reflect/Method.java
+index c1c15be..e036594 100644
+--- a/libraries/javalib/vmspecific/java/lang/reflect/Method.java
++++ b/libraries/javalib/vmspecific/java/lang/reflect/Method.java
+@@ -399,7 +399,7 @@ extends AccessibleObject implements Member, GenericDeclaration
+     for (int i = 0; i < args.length; i++) {
+       Class pt = parameterTypes[i];
+       Object arg = args[i];
+-      if (pt.isPrimitive()) { 
++      if (pt.isPrimitive() && pt.getName().charAt(0) != 0x5b) { 
+ 	/* Might need fixup */
+ 	if (pt == Boolean.TYPE) {
+ 	  if (arg instanceof Boolean) {
+diff --git a/scripts/config.guess b/scripts/config.guess
+old mode 100644
+new mode 100755
+index 0f0fe71..0658317
+--- a/scripts/config.guess
++++ b/scripts/config.guess
+@@ -142,6 +142,12 @@ UNAME_VERSION=`(uname -v) 2>/dev/null` || UNAME_VERSION=unknown
+ # Note: order is significant - the case branches are not exclusive.
+ 
+ case "${UNAME_MACHINE}:${UNAME_SYSTEM}:${UNAME_RELEASE}:${UNAME_VERSION}" in
++    x86_64:Haiku:*:*)
++	echo x86_64-pc-haiku
++	exit ;;
++    i[3-9]*86:Haiku:*:*)
++	echo i586-pc-haiku
++	exit ;;
+     *:NetBSD:*:*)
+ 	# NetBSD (nbsd) targets should (where applicable) match one or
+ 	# more of the tupples: *-*-netbsdelf*, *-*-netbsdaout*,
+diff --git a/config/x86_64/haiku/config.frag b/config/x86_64/haiku/config.frag
+new file mode 100644
+index 0000000..c942fd4
+--- /dev/null
++++ b/config/x86_64/haiku/config.frag
+@@ -0,0 +1,19 @@
++#
++# x86_64/Haiku configuration
++#
++host_cpu=x86_64
++host_os=haiku
++with_threads=unix-pthreads
++
++ac_cv_typedef_int8=yes
++ac_cv_typedef_uint8=yes
++ac_cv_typedef_int16=yes
++ac_cv_typedef_uint16=yes
++ac_cv_typedef_int32=yes
++ac_cv_typedef_uint32=yes
++ac_cv_typedef_int64=yes
++ac_cv_typedef_uint64=yes
++ac_cv_typedef_bool=yes
++
++# Haiku is BeOS-compatible: use the native BeOS AWT.
++KAFFE_CFLAGS="$KAFFE_CFLAGS -m64"
+diff --git a/config/x86_64/haiku/md.c b/config/x86_64/haiku/md.c
+new file mode 100644
+index 0000000..8c4b948
+--- /dev/null
++++ b/config/x86_64/haiku/md.c
+@@ -0,0 +1,10 @@
++/*
++ * x86_64/haiku/md.c
++ * Haiku x86_64 specific functions.
++ *
++ * See the file "license.terms" for information on usage and redistribution
++ * of this file.
++ */
++
++#include "config.h"
++#include <stdlib.h>
+diff --git a/config/x86_64/haiku/md.h b/config/x86_64/haiku/md.h
+new file mode 100644
+index 0000000..4650962
+--- /dev/null
++++ b/config/x86_64/haiku/md.h
+@@ -0,0 +1,19 @@
++/*
++ * x86_64/haiku/md.h
++ * Haiku x86_64 configuration information.
++ *
++ * See the file "license.terms" for information on usage and redistribution
++ * of this file.
++ */
++
++#ifndef __x86_64_haiku_md_h
++#define __x86_64_haiku_md_h
++
++#include "x86_64/common.h"
++#include "x86_64/threads.h"
++
++#if defined(TRANSLATOR)
++#include "jit-md.h"
++#endif
++
++#endif

@@ -1,0 +1,5 @@
+*.class
+src/classes/
+src/testclasses/
+src/lib/
+*.log

@@ -1,0 +1,347 @@
+diff --git a/configure b/configure
+index 8c23de2..cad8c5e 100755
+--- a/configure
++++ b/configure
+@@ -2024,17 +2024,12 @@ $as_echo_n "checking for $2... " >&6; }
+ if eval "test \"\${$3+set}\"" = set; then :
+   $as_echo_n "(cached) " >&6
+ else
+-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-$4
+-#include <$2>
+-_ACEOF
+-if ac_fn_c_try_compile "$LINENO"; then :
+-  eval "$3=yes"
+-else
+-  eval "$3=no"
+-fi
+-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
++  # Haiku patch: use file existence check instead of preprocessor
++  if test -e "$2" -o -e "/boot/system/develop/include/$2"; then
++    eval "$3=yes"
++  else
++    eval "$3=no"
++  fi
+ fi
+ eval ac_res=\$$3
+ 	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
+@@ -2290,40 +2285,18 @@ eval ac_res=\$$3
+ 	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
+ $as_echo "$ac_res" >&6; }
+ else
+-  # Is the header compilable?
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking $2 usability" >&5
+-$as_echo_n "checking $2 usability... " >&6; }
+-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-$4
+-#include <$2>
+-_ACEOF
+-if ac_fn_c_try_compile "$LINENO"; then :
+-  ac_header_compiler=yes
+-else
+-  ac_header_compiler=no
+-fi
+-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_header_compiler" >&5
+-$as_echo "$ac_header_compiler" >&6; }
+-
+-# Is the header present?
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking $2 presence" >&5
+-$as_echo_n "checking $2 presence... " >&6; }
+-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-#include <$2>
+-_ACEOF
+-if ac_fn_c_try_cpp "$LINENO"; then :
+-  ac_header_preproc=yes
+-else
+-  ac_header_preproc=no
+-fi
+-rm -f conftest.err conftest.i conftest.$ac_ext
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_header_preproc" >&5
+-$as_echo "$ac_header_preproc" >&6; }
++  # Haiku patch: use file existence check
++  found_header=no
++  for inc_dir in . /boot/system/develop/include $(echo "$CPPFLAGS" | grep -o '\-I[^ ]*' | sed 's/^-I//'); do
++    if test -e "$inc_dir/$2"; then found_header=yes; break; fi
++  done
++  if test "$found_header" = "yes"; then
++    ac_header_compiler=yes
++  else
++    ac_header_compiler=no
++  fi
++  ac_header_preproc=$ac_header_compiler
+ 
+-# So?  What about this header?
+ case $ac_header_compiler:$ac_header_preproc:$ac_c_preproc_warn_flag in #((
+   yes:no: )
+     { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: $2: accepted by the compiler, rejected by the preprocessor!" >&5
+@@ -7612,7 +7585,7 @@ else
+     lt_cv_sys_max_cmd_len=8192;
+     ;;
+ 
+-  amigaos*)
++  amigaos* | haiku*)
+     # On AmigaOS with pdksh, this test takes hours, literally.
+     # So we just punt and use a minimum line length of 8192.
+     lt_cv_sys_max_cmd_len=8192;
+@@ -7925,7 +7898,7 @@ aix[4-9]*)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-beos*)
++beos* | haiku*)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+@@ -9759,8 +9732,10 @@ for ac_header in sys/types.h sys/stat.h stdlib.h string.h memory.h strings.h \
+ 		  inttypes.h stdint.h unistd.h
+ do :
+   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
++if eval "test \"\${as_ac_Header+set}\"" = set; then eval ac_res=\$$as_ac_Header; { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_header" >&5; $as_echo "checking for $ac_header... (cached) $ac_res" >&6; }; else
+ ac_fn_c_check_header_compile "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default
+ "
++fi
+ if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
+   cat >>confdefs.h <<_ACEOF
+ #define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+@@ -9773,8 +9748,10 @@ done
+ 
+ for ac_header in dlfcn.h
+ do :
+-  ac_fn_c_check_header_compile "$LINENO" "dlfcn.h" "ac_cv_header_dlfcn_h" "$ac_includes_default
++  if eval "test \"\${ac_cv_header_dlfcn_h+set}\"" = set; then eval ac_res=\$$ac_cv_header_dlfcn_h; { $as_echo "checking for dlfcn.h... (cached) $ac_res" >&6; }; else
++ac_fn_c_check_header_compile "$LINENO" "dlfcn.h" "ac_cv_header_dlfcn_h" "$ac_includes_default
+ "
++fi
+ if test "x$ac_cv_header_dlfcn_h" = x""yes; then :
+   cat >>confdefs.h <<_ACEOF
+ #define HAVE_DLFCN_H 1
+@@ -10862,7 +10839,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
+       fi
+       ;;
+ 
+-    amigaos*)
++    amigaos* | haiku*)
+       case $host_cpu in
+       powerpc)
+             # see comment about AmigaOS4 .so support
+@@ -10877,7 +10854,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
+       esac
+       ;;
+ 
+-    beos* | irix5* | irix6* | nonstopux* | osf3* | osf4* | osf5*)
++    beos* | haiku* | irix5* | irix6* | nonstopux* | osf3* | osf4* | osf5*)
+       # PIC is the default for these OSes.
+       ;;
+ 
+@@ -11477,7 +11454,7 @@ _LT_EOF
+       fi
+       ;;
+ 
+-    amigaos*)
++    amigaos* | haiku*)
+       case $host_cpu in
+       powerpc)
+             # see comment about AmigaOS4 .so support
+@@ -11492,7 +11469,7 @@ _LT_EOF
+       esac
+       ;;
+ 
+-    beos*)
++    beos* | haiku*)
+       if $LD --help 2>&1 | $GREP ': supported targets:.* elf' > /dev/null; then
+ 	allow_undefined_flag=unsupported
+ 	# Joseph Beckenbach <jrb3@best.com> says some releases of gcc
+@@ -11898,7 +11875,7 @@ if test -z "$aix_libpath"; then aix_libpath="/usr/lib:/lib"; fi
+       fi
+       ;;
+ 
+-    amigaos*)
++    amigaos* | haiku*)
+       case $host_cpu in
+       powerpc)
+             # see comment about AmigaOS4 .so support
+@@ -12725,7 +12702,7 @@ aix[4-9]*)
+   fi
+   ;;
+ 
+-amigaos*)
++amigaos* | haiku*)
+   case $host_cpu in
+   powerpc)
+     # Since July 2007 AmigaOS4 officially supports .so libraries.
+@@ -12740,7 +12717,7 @@ amigaos*)
+   esac
+   ;;
+ 
+-beos*)
++beos* | haiku*)
+   library_names_spec='${libname}${shared_ext}'
+   dynamic_linker="$host_os ld.so"
+   shlibpath_var=LIBRARY_PATH
+@@ -13414,7 +13391,7 @@ else
+   lt_cv_dlopen_libs=
+ 
+   case $host_os in
+-  beos*)
++  beos* | haiku*)
+     lt_cv_dlopen="load_add_on"
+     lt_cv_dlopen_libs=
+     lt_cv_dlopen_self=yes
+@@ -14461,7 +14438,7 @@ if test -z "$aix_libpath"; then aix_libpath="/usr/lib:/lib"; fi
+         fi
+         ;;
+ 
+-      beos*)
++      beos* | haiku*)
+ 	if $LD --help 2>&1 | $GREP ': supported targets:.* elf' > /dev/null; then
+ 	  allow_undefined_flag_CXX=unsupported
+ 	  # Joseph Beckenbach <jrb3@best.com> says some releases of gcc
+@@ -15417,7 +15394,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
+       fi
+       ;;
+ 
+-    amigaos*)
++    amigaos* | haiku*)
+       case $host_cpu in
+       powerpc)
+             # see comment about AmigaOS4 .so support
+@@ -15432,7 +15409,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
+       esac
+       ;;
+ 
+-    beos* | irix5* | irix6* | nonstopux* | osf3* | osf4* | osf5*)
++    beos* | haiku* | irix5* | irix6* | nonstopux* | osf3* | osf4* | osf5*)
+       # PIC is the default for these OSes.
+       ;;
+     mingw* | cygwin* | os2* | pw32* | cegcc*)
+@@ -16194,7 +16171,7 @@ aix[4-9]*)
+   fi
+   ;;
+ 
+-amigaos*)
++amigaos* | haiku*)
+   case $host_cpu in
+   powerpc)
+     # Since July 2007 AmigaOS4 officially supports .so libraries.
+@@ -16209,7 +16186,7 @@ amigaos*)
+   esac
+   ;;
+ 
+-beos*)
++beos* | haiku*)
+   library_names_spec='${libname}${shared_ext}'
+   dynamic_linker="$host_os ld.so"
+   shlibpath_var=LIBRARY_PATH
+@@ -16863,11 +16840,13 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
+ 
+ 
+ 
++if eval "test \"\${ac_cv_header_ltdl_h+set}\"" = set; then eval ac_res=\$$ac_cv_header_ltdl_h; { $as_echo "checking for ltdl.h... (cached) $ac_res" >&6; }; else
+ ac_fn_c_check_header_mongrel "$LINENO" "ltdl.h" "ac_cv_header_ltdl_h" "$ac_includes_default"
++fi
+ if test "x$ac_cv_header_ltdl_h" = x""yes; then :
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing lt_dlinterface_register" >&5
+-$as_echo_n "checking for library containing lt_dlinterface_register... " >&6; }
+-if test "${ac_cv_search_lt_dlinterface_register+set}" = set; then :
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing lt_dlinit" >&5
++$as_echo_n "checking for library containing lt_dlinit... " >&6; }
++if test "${ac_cv_search_lt_dlinit+set}" = set; then :
+   $as_echo_n "(cached) " >&6
+ else
+   ac_func_search_save_LIBS=$LIBS
+@@ -16880,11 +16859,11 @@ cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+ #ifdef __cplusplus
+ extern "C"
+ #endif
+-char lt_dlinterface_register ();
++char lt_dlinit ();
+ int
+ main ()
+ {
+-return lt_dlinterface_register ();
++return lt_dlinit ();
+   ;
+   return 0;
+ }
+@@ -16897,25 +16876,25 @@ for ac_lib in '' ltdl; do
+     LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+   fi
+   if ac_fn_c_try_link "$LINENO"; then :
+-  ac_cv_search_lt_dlinterface_register=$ac_res
++  ac_cv_search_lt_dlinit=$ac_res
+ fi
+ rm -f core conftest.err conftest.$ac_objext \
+     conftest$ac_exeext
+-  if test "${ac_cv_search_lt_dlinterface_register+set}" = set; then :
++  if test "${ac_cv_search_lt_dlinit+set}" = set; then :
+   break
+ fi
+ done
+-if test "${ac_cv_search_lt_dlinterface_register+set}" = set; then :
++if test "${ac_cv_search_lt_dlinit+set}" = set; then :
+ 
+ else
+-  ac_cv_search_lt_dlinterface_register=no
++  ac_cv_search_lt_dlinit=no
+ fi
+ rm conftest.$ac_ext
+ LIBS=$ac_func_search_save_LIBS
+ fi
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_lt_dlinterface_register" >&5
+-$as_echo "$ac_cv_search_lt_dlinterface_register" >&6; }
+-ac_res=$ac_cv_search_lt_dlinterface_register
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_lt_dlinit" >&5
++$as_echo "$ac_cv_search_lt_dlinit" >&6; }
++ac_res=$ac_cv_search_lt_dlinit
+ if test "$ac_res" != no; then :
+   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+ 
+@@ -19499,7 +19478,9 @@ fi
+ 
+   for ac_header in semaphore.h
+ do :
+-  ac_fn_c_check_header_mongrel "$LINENO" "semaphore.h" "ac_cv_header_semaphore_h" "$ac_includes_default"
++  if eval "test \"\${ac_cv_header_semaphore_h+set}\"" = set; then eval ac_res=\$$ac_cv_header_semaphore_h; { $as_echo "checking for semaphore.h... (cached) $ac_res" >&6; }; else
++ac_fn_c_check_header_mongrel "$LINENO" "semaphore.h" "ac_cv_header_semaphore_h" "$ac_includes_default"
++fi
+ if test "x$ac_cv_header_semaphore_h" = x""yes; then :
+   cat >>confdefs.h <<_ACEOF
+ #define HAVE_SEMAPHORE_H 1
+@@ -19543,7 +19524,7 @@ return (ret < 0) ? 1 : 0;
+   return 0;
+ }
+ _ACEOF
+-if ac_fn_c_try_run "$LINENO"; then :
++if ac_fn_c_try_compile "$LINENO"; then :
+   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ok" >&5
+ $as_echo "ok" >&6; }
+ else
+@@ -21096,10 +21077,12 @@ done
+ 
+ for ac_header in asm/signal.h
+ do :
+-  ac_fn_c_check_header_compile "$LINENO" "asm/signal.h" "ac_cv_header_asm_signal_h" "
++  if eval "test \"\${ac_cv_header_asm_signal_h+set}\"" = set; then eval ac_res=\$$ac_cv_header_asm_signal_h; { $as_echo "checking for asm/signal.h... (cached) $ac_res" >&6; }; else
++ac_fn_c_check_header_compile "$LINENO" "asm/signal.h" "ac_cv_header_asm_signal_h" "
+ #include <linux/types.h>
+ 
+ "
++fi
+ if test "x$ac_cv_header_asm_signal_h" = x""yes; then :
+   cat >>confdefs.h <<_ACEOF
+ #define HAVE_ASM_SIGNAL_H 1
+@@ -21362,7 +21345,9 @@ fi
+ 
+   for ac_header in stdint.h
+ do :
+-  ac_fn_c_check_header_mongrel "$LINENO" "stdint.h" "ac_cv_header_stdint_h" "$ac_includes_default"
++  if eval "test \"\${ac_cv_header_stdint_h+set}\"" = set; then eval ac_res=\$$ac_cv_header_stdint_h; { $as_echo "checking for stdint.h... (cached) $ac_res" >&6; }; else
++ac_fn_c_check_header_mongrel "$LINENO" "stdint.h" "ac_cv_header_stdint_h" "$ac_includes_default"
++fi
+ if test "x$ac_cv_header_stdint_h" = x""yes; then :
+   cat >>confdefs.h <<_ACEOF
+ #define HAVE_STDINT_H 1

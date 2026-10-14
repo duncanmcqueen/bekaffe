@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeKaffe</title>
+<style>
+  :root {
+    --page: #336698;
+    --panel: #000033;
+    --text: #99CCFF;
+    --white: #FFFFFF;
+    --grey: #999999;
+    --warn: #F08080;
+  }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--page);
+    color: var(--text);
+    font-family: arial, helvetica, sans-serif;
+  }
+  a, a:visited { color: var(--text); }
+  .frame {
+    display: flex;
+    gap: 20px;
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 10px;
+    background: var(--panel);
+    box-sizing: border-box;
+  }
+  /* SIDEBAR */
+  .sidebar {
+    flex: 0 0 230px;
+    text-align: center;
+    padding: 10px;
+  }
+  .logo { font-family: helvetica, arial, sans-serif; font-size: 1.5em; font-weight: bold; }
+  .logo img { vertical-align: middle; margin-right: 8px; }
+  .logo .be { color: var(--white); }
+  .logo .kaffe { text-decoration: underline; }
+  .sidebar hr { width: 45%; border: 0; border-top: 1px solid var(--grey); }
+  .tagline { font-style: italic; font-size: small; }
+  .sidebar nav { width: 70%; margin: 1.5em auto 0; text-align: left; line-height: 1.35; }
+  .sidebar h3 { color: var(--white); font-size: 1.1em; text-align: center; margin: 1.6em 0 0.8em; }
+  .hosted { font-size: small; margin-top: 3em; }
+  /* TITLE + CONTENT */
+  main { flex: 1; min-width: 0; padding: 10px; }
+  h1 { text-align: right; color: var(--text); font-family: "Times New Roman", serif; margin: 0.6em 0 1em; }
+  .date { color: var(--white); font-weight: bold; font-style: italic; font-size: 1.15em; margin: 0 0 1em; }
+  .entry { padding: 0 5% 1.5em; line-height: 1.35; }
+  .warn { color: var(--warn); }
+  .shot { margin: 1.2em 0 1.6em; }
+  .shot img { width: 100%; height: auto; display: block; border: 1px solid #224466; }
+  .shot p { margin: 0.4em 0 0; font-size: small; color: var(--grey); text-align: center; }
+  ul { padding-left: 1.3em; }
+  .old { text-align: right; font-size: 1.1em; }
+  @media (max-width: 760px) {
+    .frame { flex-direction: column; width: 100%; gap: 0; }
+    .sidebar { flex: none; }
+    .sidebar nav { width: auto; text-align: center; }
+    .hosted { margin-top: 1.5em; }
+    h1 { text-align: center; }
+    .entry { padding: 0 0 1.5em; }
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo"><img src="art/icon.jpg" width="32" height="32" alt=""><span class="be">Be</span><span class="kaffe">Kaffe</span></div>
+  <hr>
+  <div class="tagline">Bringing Java to<br>the Haiku platform</div>
+
+  <nav>
+    <a href="#news">News</a><br>
+    <a href="https://github.com/duncanmcqueen/bekaffe#readme">About</a><br>
+    <a href="https://github.com/duncanmcqueen/bekaffe">Download</a><br>
+    <a href="#screenshots">Screenshots</a>
+  </nav>
+
+  <h3>Development</h3>
+  <nav style="margin-top:0">
+    <a href="https://github.com/duncanmcqueen/bekaffe">Source code</a><br>
+    <a href="https://github.com/duncanmcqueen/bekaffe/issues">Bug Database</a><br>
+    <a href="https://github.com/duncanmcqueen/bekaffe/blob/main/docs/development-notes.md">Developer notes</a><br>
+    <a href="https://github.com/kaffe/kaffe">Kaffe</a><br>
+    <a href="https://www.gnu.org/software/classpath/">GNU Classpath</a><br>
+    <a href="https://www.haiku-os.org/">Haiku</a>
+  </nav>
+
+  <h3>Join Us.</h3>
+  <nav style="margin-top:0">
+    <a href="https://github.com/duncanmcqueen/bekaffe/issues">Developers, testers,</a><br>
+    <a href="https://github.com/duncanmcqueen/bekaffe/issues">enthusiastic users.</a><br>
+    <a href="https://github.com/duncanmcqueen/bekaffe/issues">We want to hear from you!</a>
+  </nav>
+
+  <div class="hosted">Hosted by<br><a href="https://github.com/duncanmcqueen/bekaffe">GitHub</a></div>
+</aside>
+
+<!-- TITLE -->
+<main id="news">
+<h1>BeKaffe News</h1>
+
+<!-- CONTENT -->
+<p class="date">Tuesday, October 13th, 2026</p>
+<div class="entry">
+  <p>The last BeKaffe news, in August 2000, said that work was focused on a native widgets
+  version with a native look and feel. That version is now complete, for Haiku: Java AWT
+  programs run in Haiku windows with native Haiku menus and panels.</p>
+
+  <p>The new AWT peer works with Kaffe 1.1.10 and GNU Classpath 0.98 on Haiku R1/beta6 x86_64:</p>
+  <ul>
+    <li>Frames and dialogs are native Haiku windows.</li>
+    <li>Menu bars, menus, check box menu items and shortcuts are native Haiku menus. Pop-up
+    menus and Choice lists are native Haiku pop-ups.</li>
+    <li>FileDialog opens the Haiku file panel.</li>
+    <li>Canvas, Panel, Label, Button, Checkbox, radio groups, TextField, Scrollbar, List,
+    ScrollPane and Choice all work.</li>
+    <li>Swing works too.</li>
+    <li>Old applets that use the JDK 1.0 event model (<code>action()</code>,
+    <code>handleEvent()</code>) work again.</li>
+  </ul>
+
+  <p id="screenshots">To celebrate, the old screenshots from bekaffe.sourceforge.net were taken again. The same
+  applets, in the same Kaffe 1.0 AppletViewer, BeOS in 1999 on the left and Haiku in 2026 on the right:</p>
+
+  <div class="shot">
+    <img src="screenshots/bekaffe2-compare.png" alt="Curve, TicTacToe, Blink and Animator applets on BeOS in 1999 and on Haiku in 2026" width="1612" height="628">
+    <p>Various demos: Curve, TicTacToe, Blink and Animator.</p>
+  </div>
+  <div class="shot">
+    <img src="screenshots/bekaffe3-compare.png" alt="ImageMap with its Applet menu open, WireFrame and SimpleGraph on BeOS in 1999 and on Haiku in 2026" width="1612" height="628">
+    <p>ImageMap with its menu open, the WireFrame dinosaur and SimpleGraph.</p>
+  </div>
+  <div class="shot">
+    <img src="screenshots/bekaffe-compare.png" alt="BigPalindrome applet over a terminal on BeOS in 1999 and on Haiku in 2026" width="1292" height="508">
+    <p>Number one: BigPalindrome.</p>
+  </div>
+
+  <p><span class="warn">STILL TO DO:</span> the system clipboard, mouse cursors, audio
+  (applets play no sound yet), file name filters in FileDialog, minimize and zoom, modal
+  window behavior, and integration into the GNU Classpath build. Kaffe runs as an
+  interpreter on x86_64, so drawing is slow.</p>
+
+  <p>The sources, the Kaffe and Classpath patches and the build instructions are in
+  <a href="https://github.com/duncanmcqueen/bekaffe">the repository</a>. If you are a Java/C++
+  developer with some experience of the Haiku API and would like to help, please
+  <a href="https://github.com/duncanmcqueen/bekaffe/issues">contact us</a>.</p>
+
+  <p style="font-size:small;color:var(--grey)">This is a new port, not by the original BeKaffe
+  team. It was written with help from Claude Code, an AI model by Anthropic.</p>
+</div>
+
+<p class="old"><a href="https://bekaffe.sourceforge.net/">-&gt; Old news</a></p>
+</main>
+
+</div>
+
+</body>
+</html>

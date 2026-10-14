@@ -1,0 +1,58 @@
+--- a/java/lang/Thread.java
++++ b/java/lang/Thread.java
+@@ -159,7 +159,7 @@
+   /** Thread local storage. Package accessible for use by
+     * InheritableThreadLocal.
+     */
+-  final ThreadLocalMap locals;
++  ThreadLocalMap locals;
+ 
+   /** The uncaught exception handler.  */
+   UncaughtExceptionHandler exceptionHandler;
+@@ -1073,7 +1073,10 @@
+    */
+   static ThreadLocalMap getThreadLocals()
+   {
+-    return currentThread().locals;
++    Thread t = currentThread();
++    if (t.locals == null)
++      t.locals = new ThreadLocalMap();
++    return t.locals;
+   }
+ 
+   /** 
+--- a/java/net/ResolverCache.java
++++ b/java/net/ResolverCache.java
+@@ -73,6 +73,10 @@
+   /**
+    * The time in seconds for which successful lookups are cached.
+    */
++  /* MOVED_FIELDS: initialized before getTTL() to avoid re-entrant <clinit> */
++  private static HashMap<Object, Entry> cache = new HashMap<Object, Entry>();
++  private static LinkedList<Entry> killqueue = new LinkedList<Entry>();
++
+   private static final int POSITIVE_TTL =
+     getTTL("networkaddress.cache.ttl", -1);
+ 
+@@ -97,12 +101,10 @@
+   /**
+    * The cache itself.
+    */
+-  private static HashMap<Object, Entry> cache = new HashMap<Object, Entry>();
+ 
+   /**
+    * List of entries which may expire.
+    */
+-  private static LinkedList<Entry> killqueue = new LinkedList<Entry>();
+ 
+   /**
+    * Return the hostname for the specified IP address.
+--- a/native/jni/java-net/java_net_VMNetworkInterface.c
++++ b/native/jni/java-net/java_net_VMNetworkInterface.c
+@@ -1,3 +1,6 @@
++#ifndef IFF_RUNNING
++#define IFF_RUNNING 0x40
++#endif
+ /* VMNetworkInterface.c - Native methods for NetworkInterface class
+    Copyright (C) 2003, 2005, 2006, 2008 Free Software Foundation, Inc.
+ 
