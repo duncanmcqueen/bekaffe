@@ -109,23 +109,6 @@
 <h1>BeKaffe News</h1>
 
 <!-- CONTENT -->
-<p class="date">Tuesday, October 13th, 2026 (night)</p>
-<div class="entry">
-  <p>GNU Classpath now builds natively on Haiku. Until today it had to pretend to be
-  Linux to configure. With the new patch, <code>configure</code> knows it is on Haiku,
-  finds Haiku's network library (the old build missed most of the socket functions),
-  builds the Haiku peer and makes it the default AWT toolkit and sound mixer. Java
-  programs need no extra options any more.</p>
-
-  <p>The build also turned up three old bugs in GNU Classpath, which the patch fixes:
-  a typo in <code>configure.ac</code> that made new autoconf versions lose
-  <code>mmap</code> (and with it all fonts), an empty sound mixer list in out-of-tree
-  builds, and <code>Frame.setState()</code>, which minimized when asked to restore.</p>
-
-  <p>Next on the list: modal windows, always-on-top windows, drag and drop, printing,
-  input methods, and pictures and other data on the clipboard.</p>
-</div>
-
 <p class="date">Tuesday, October 13th, 2026 (evening)</p>
 <div class="entry">
   <p>The list of things to do from this morning is done:</p>
