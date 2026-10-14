@@ -38,7 +38,6 @@ exception statement from your version. */
 
 package gnu.java.awt.peer.haiku;
 
-import gnu.java.awt.font.OpenTypeFontPeer;
 
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -93,6 +92,13 @@ public class HaikuGraphicsEnvironment
 
   public String[] getAvailableFontFamilyNames(Locale l)
   {
-    return OpenTypeFontPeer.getAvailableFontFamilyNames(l);
+    // The Java logical fonts, then Haiku's font families.
+    String[] logical = { "Dialog", "DialogInput", "Monospaced", "SansSerif",
+                         "Serif" };
+    String[] haiku = HaikuFontPeer.haikuFamilies();
+    String[] all = new String[logical.length + haiku.length];
+    System.arraycopy(logical, 0, all, 0, logical.length);
+    System.arraycopy(haiku, 0, all, logical.length, haiku.length);
+    return all;
   }
 }

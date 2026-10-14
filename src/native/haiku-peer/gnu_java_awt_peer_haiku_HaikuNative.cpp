@@ -73,6 +73,7 @@ exception statement from your version. */
 #include <PrintJob.h>
 #include <Roster.h>
 #include <Screen.h>
+#include <Shape.h>
 #include <SoundPlayer.h>
 #include <TranslationUtils.h>
 #include <TranslatorFormats.h>
@@ -3015,67 +3016,368 @@ Java_gnu_java_awt_peer_haiku_HaikuNative_imShowComposition(JNIEnv *env,
 } /* extern "C" */
 
 /* ------------------------------------------------------------------ */
-/* Text that the Java fonts cannot show (for example Chinese and
-   Japanese: Haiku's CJK fonts are CFF2 fonts, which GNU Classpath cannot
-   read).  The app_server draws it, with its own font fallback. */
+/* Java text with Haiku's fonts.
+ *
+ * Java fonts are BFonts.  Java measures text with BFont escapements and
+ * the app_server draws it (with Haiku's hinting, anti-aliasing and font
+ * fallback) into an off-screen bitmap; Java blends the coverage.  Glyph
+ * outlines (BFont::GetGlyphShapes) serve shapes, transformed text and
+ * printing at other scales.
+ */
+
+static BFont *
+fontOf(jlong h)
+{
+  return (BFont *) (intptr_t) h;
+}
+
+/* A string as UTF-8, and for each UTF-16 unit the index of its code
+   point (-1 for the second half of a surrogate pair). */
+struct Utf8Text
+{
+  std::string utf8;
+  std::vector<int32> unitToPoint;
+  int32 points;
+};
+
+static void
+utf8Text(JNIEnv *env, jstring js, Utf8Text *out)
+{
+  out->utf8 = utf8FromString(env, js);
+  jsize n = js != NULL ? env->GetStringLength(js) : 0;
+  out->unitToPoint.resize(n);
+  const jchar *c = n > 0 ? env->GetStringChars(js, NULL) : NULL;
+  int32 point = 0;
+  for (jsize i = 0; i < n; i++)
+    {
+      out->unitToPoint[i] = point;
+      if (c[i] >= 0xD800 && c[i] < 0xDC00 && i + 1 < n
+          && c[i + 1] >= 0xDC00 && c[i + 1] < 0xE000)
+        {
+          out->unitToPoint[++i] = -1;
+        }
+      point++;
+    }
+  if (c != NULL)
+    env->ReleaseStringChars(js, c);
+  out->points = point;
+}
+
+/* One off-screen bitmap for drawing text, grown when needed. */
+static pthread_mutex_t gTextLock = PTHREAD_MUTEX_INITIALIZER;
+static BBitmap *gTextBitmap;
+static BView *gTextView;
+
+static bool
+textCanvas(int32 w, int32 h)
+{
+  if (gTextBitmap != NULL)
+    {
+      BRect b = gTextBitmap->Bounds();
+      if (b.IntegerWidth() + 1 >= w && b.IntegerHeight() + 1 >= h)
+        return true;
+      w = w > b.IntegerWidth() + 1 ? w : b.IntegerWidth() + 1;
+      h = h > b.IntegerHeight() + 1 ? h : b.IntegerHeight() + 1;
+      delete gTextBitmap;
+      gTextBitmap = NULL;
+      gTextView = NULL;
+    }
+  if (w < 256) w = 256;
+  if (h < 64) h = 64;
+  gTextBitmap = new BBitmap(BRect(0, 0, w - 1, h - 1), B_RGBA32, true);
+  if (gTextBitmap->InitCheck() != B_OK)
+    {
+      delete gTextBitmap;
+      gTextBitmap = NULL;
+      return false;
+    }
+  gTextView = new BView(gTextBitmap->Bounds(), "text", B_FOLLOW_NONE, 0);
+  gTextBitmap->AddChild(gTextView);
+  return true;
+}
+
+/* Collects a BShape as a flat float path for Java: 0 x y = move,
+   1 x y = line, 2 x1 y1 x2 y2 x3 y3 = cubic, 3 = close. */
+class PathCollector : public BShapeIterator
+{
+public:
+  PathCollector(std::vector<float> *out, float dx, float dy)
+    : fOut(out), fDx(dx), fDy(dy) {}
+
+  virtual status_t IterateMoveTo(BPoint *p)
+  {
+    Add(0, p, 1);
+    return B_OK;
+  }
+
+  virtual status_t IterateLineTo(int32 count, BPoint *p)
+  {
+    for (int32 i = 0; i < count; i++)
+      Add(1, p + i, 1);
+    return B_OK;
+  }
+
+  virtual status_t IterateBezierTo(int32 count, BPoint *p)
+  {
+    for (int32 i = 0; i < count; i++)
+      Add(2, p + i * 3, 3);
+    return B_OK;
+  }
+
+  virtual status_t IterateClose()
+  {
+    fOut->push_back(3);
+    return B_OK;
+  }
+
+private:
+  void Add(float op, BPoint *p, int n)
+  {
+    fOut->push_back(op);
+    for (int i = 0; i < n; i++)
+      {
+        fOut->push_back(p[i].x + fDx);
+        fOut->push_back(p[i].y + fDy);
+      }
+  }
+
+  std::vector<float> *fOut;
+  float fDx, fDy;
+};
 
 extern "C" {
 
-/* Draws text white on black and returns its coverage (0..255) per pixel;
-   dims = width, height, ascent. */
-JNIEXPORT jintArray JNICALL
-Java_gnu_java_awt_peer_haiku_HaikuNative_textRender(JNIEnv *env, jclass,
+/* Opens a font: family ("" = the plain font) and face flags
+   (B_BOLD_FACE, B_ITALIC_FACE...).  Returns 0 if the family is unknown. */
+JNIEXPORT jlong JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontOpen(JNIEnv *env, jclass,
+                                                  jstring family, jint face)
+{
+  std::string f = utf8FromString(env, family);
+  BFont *font = new BFont(be_plain_font);
+  if (!f.empty())
+    {
+      font_family fam;
+      strlcpy(fam, f.c_str(), sizeof(fam));
+      if (font->SetFamilyAndFace(fam, (uint16) face) != B_OK)
+        {
+          delete font;
+          return 0;
+        }
+    }
+  else if (face != B_REGULAR_FACE)
+    font->SetFace((uint16) face);
+  return (jlong) (intptr_t) font;
+}
+
+/* The installed font families; which = 0: all, 1: the plain font's,
+   2: the fixed font's. */
+JNIEXPORT jobjectArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontFamilies(JNIEnv *env, jclass,
+                                                      jint which)
+{
+  std::vector<std::string> names;
+  font_family fam;
+  font_style sty;
+  if (which == 1 || which == 2)
+    {
+      (which == 1 ? be_plain_font : be_fixed_font)->GetFamilyAndStyle(&fam,
+                                                                       &sty);
+      names.push_back(fam);
+    }
+  else
+    {
+      int32 n = count_font_families();
+      for (int32 i = 0; i < n; i++)
+        {
+          uint32 flags;
+          if (get_font_family(i, &fam, &flags) == B_OK)
+            names.push_back(fam);
+        }
+    }
+  jobjectArray arr = env->NewObjectArray(names.size(),
+                                         env->FindClass("java/lang/String"),
+                                         NULL);
+  for (size_t i = 0; i < names.size(); i++)
+    {
+      jstring js = newStringFromUTF8(env, names[i].data(), names[i].size());
+      env->SetObjectArrayElement(arr, i, js);
+      env->DeleteLocalRef(js);
+    }
+  return arr;
+}
+
+/* out = ascent, descent, leading, max advance (pixels at this size). */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontMetrics(JNIEnv *env, jclass,
+                                                     jlong h, jfloat size,
+                                                     jfloatArray out)
+{
+  BFont font(*fontOf(h));
+  font.SetSize(size);
+  font_height fh;
+  font.GetHeight(&fh);
+  BRect box = font.BoundingBox();
+  jfloat v[4] = { fh.ascent, fh.descent, fh.leading,
+                  box.Width() * size };
+  env->SetFloatArrayRegion(out, 0, 4, v);
+}
+
+/* The advance of each UTF-16 unit of text (0 for the second half of a
+   surrogate pair). */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontAdvances(JNIEnv *env, jclass,
+                                                      jlong h, jfloat size,
+                                                      jstring text,
+                                                      jfloatArray out)
+{
+  Utf8Text t;
+  utf8Text(env, text, &t);
+  size_t n = t.unitToPoint.size();
+  if (n == 0)
+    return;
+  BFont font(*fontOf(h));
+  font.SetSize(size);
+  std::vector<float> esc(t.points + 1);
+  font.GetEscapements(t.utf8.c_str(), t.points, &esc[0]);
+  std::vector<jfloat> adv(n);
+  for (size_t i = 0; i < n; i++)
+    adv[i] = t.unitToPoint[i] < 0 ? 0 : esc[t.unitToPoint[i]] * size;
+  env->SetFloatArrayRegion(out, 0, n, &adv[0]);
+}
+
+JNIEXPORT jfloat JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontWidth(JNIEnv *env, jclass,
+                                                   jlong h, jfloat size,
+                                                   jstring text)
+{
+  std::string t = utf8FromString(env, text);
+  BFont font(*fontOf(h));
+  font.SetSize(size);
+  return font.StringWidth(t.c_str());
+}
+
+/* True for each UTF-16 unit that the font (or Haiku's fallback fonts)
+   can show. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontHasGlyphs(JNIEnv *env, jclass,
+                                                       jlong h, jstring text,
+                                                       jbooleanArray out)
+{
+  Utf8Text t;
+  utf8Text(env, text, &t);
+  size_t n = t.unitToPoint.size();
+  if (n == 0)
+    return;
+  bool *has = new bool[t.points + 1];
+  fontOf(h)->GetHasGlyphs(t.utf8.c_str(), t.points, has, true);
+  std::vector<jboolean> r(n);
+  for (size_t i = 0; i < n; i++)
+    r[i] = t.unitToPoint[i] < 0 ? JNI_TRUE : has[t.unitToPoint[i]];
+  delete[] has;
+  env->SetBooleanArrayRegion(out, 0, n, &r[0]);
+}
+
+/* Draws text with the app_server and returns its coverage (0..255);
+   dims = width, height, baseline y, origin x in the mask. */
+JNIEXPORT jbyteArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontRender(JNIEnv *env, jclass,
+                                                    jlong h, jfloat size,
                                                     jstring text,
-                                                    jfloat size,
-                                                    jboolean bold,
-                                                    jboolean italic,
                                                     jintArray dims)
 {
   std::string t = utf8FromString(env, text);
   if (t.empty() || size <= 0)
     return NULL;
-  BFont font(be_plain_font);
+  BFont font(*fontOf(h));
   font.SetSize(size);
-  uint16 face = 0;
-  if (bold)
-    face |= B_BOLD_FACE;
-  if (italic)
-    face |= B_ITALIC_FACE;
-  if (face != 0)
-    font.SetFace(face);
   font_height fh;
   font.GetHeight(&fh);
-  int32 ascent = (int32) ceilf(fh.ascent);
-  int32 w = (int32) ceilf(font.StringWidth(t.c_str())) + 1;
-  int32 h = ascent + (int32) ceilf(fh.descent) + 1;
-  BBitmap bmp(BRect(0, 0, w - 1, h - 1), B_RGBA32, true);
-  if (bmp.InitCheck() != B_OK)
-    return NULL;
-  BView *view = new BView(bmp.Bounds(), "text", B_FOLLOW_NONE, 0);
-  bmp.AddChild(view);
-  if (!bmp.Lock())
-    return NULL;
-  view->SetHighColor(0, 0, 0);
-  view->FillRect(view->Bounds());
-  view->SetHighColor(255, 255, 255);
-  view->SetLowColor(0, 0, 0);
-  view->SetFont(&font);
-  view->SetDrawingMode(B_OP_OVER);
-  view->DrawString(t.c_str(), BPoint(0, ascent));
-  view->Sync();
-  jintArray result = env->NewIntArray(w * h);
-  std::vector<jint> row(w);
-  const uint8 *bits = (const uint8 *) bmp.Bits();
-  for (int32 y = 0; y < h; y++)
+  int32 pad = (int32) ceilf(size / 4) + 1; /* italic and overhang room */
+  int32 ascent = (int32) ceilf(fh.ascent) + 1;
+  int32 w = (int32) ceilf(font.StringWidth(t.c_str())) + 2 * pad;
+  int32 hh = ascent + (int32) ceilf(fh.descent) + 2;
+  jbyteArray result = NULL;
+  pthread_mutex_lock(&gTextLock);
+  if (textCanvas(w, hh) && gTextBitmap->Lock())
     {
-      const uint8 *p = bits + y * bmp.BytesPerRow();
-      for (int32 x = 0; x < w; x++)
-        row[x] = p[x * 4 + 1]; /* green channel */
-      env->SetIntArrayRegion(result, y * w, w, &row[0]);
+      BRect area(0, 0, w - 1, hh - 1);
+      gTextView->SetHighColor(0, 0, 0);
+      gTextView->FillRect(area);
+      gTextView->SetHighColor(255, 255, 255);
+      gTextView->SetLowColor(0, 0, 0);
+      gTextView->SetFont(&font);
+      gTextView->SetDrawingMode(B_OP_OVER);
+      gTextView->DrawString(t.c_str(), BPoint(pad, ascent));
+      gTextView->Sync();
+      result = env->NewByteArray(w * hh);
+      std::vector<jbyte> row(w);
+      const uint8 *bits = (const uint8 *) gTextBitmap->Bits();
+      int32 bpr = gTextBitmap->BytesPerRow();
+      for (int32 y = 0; y < hh; y++)
+        {
+          const uint8 *p = bits + y * bpr;
+          for (int32 x = 0; x < w; x++)
+            /* Average of the channels, also right for subpixel AA. */
+            row[x] = (jbyte) ((p[x * 4] + p[x * 4 + 1] + p[x * 4 + 2]) / 3);
+          env->SetByteArrayRegion(result, y * w, w, &row[0]);
+        }
+      gTextBitmap->Unlock();
+      jint d[4] = { w, hh, ascent, pad };
+      env->SetIntArrayRegion(dims, 0, 4, d);
     }
-  bmp.Unlock();
-  jint d[3] = { w, h, ascent };
-  env->SetIntArrayRegion(dims, 0, 3, d);
+  pthread_mutex_unlock(&gTextLock);
+  return result;
+}
+
+/* The outline of text as a flat path (see PathCollector); xs are the x
+   positions of the UTF-16 units (null: laid out with the advances). */
+JNIEXPORT jfloatArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_fontOutline(JNIEnv *env, jclass,
+                                                     jlong h, jfloat size,
+                                                     jstring text,
+                                                     jfloatArray xs)
+{
+  Utf8Text t;
+  utf8Text(env, text, &t);
+  if (t.points == 0)
+    return env->NewFloatArray(0);
+  BFont font(*fontOf(h));
+  font.SetSize(size);
+  std::vector<float> esc(t.points + 1);
+  font.GetEscapements(t.utf8.c_str(), t.points, &esc[0]);
+  std::vector<float> pointX(t.points);
+  float x = 0;
+  for (int32 i = 0; i < t.points; i++)
+    {
+      pointX[i] = x;
+      x += esc[i] * size;
+    }
+  if (xs != NULL)
+    {
+      jsize n = env->GetArrayLength(xs);
+      jfloat *v = env->GetFloatArrayElements(xs, NULL);
+      for (jsize i = 0; v != NULL && i < n && i < (jsize) t.unitToPoint.size();
+           i++)
+        if (t.unitToPoint[i] >= 0)
+          pointX[t.unitToPoint[i]] = v[i];
+      if (v != NULL)
+        env->ReleaseFloatArrayElements(xs, v, JNI_ABORT);
+    }
+  std::vector<BShape *> shapes(t.points);
+  for (int32 i = 0; i < t.points; i++)
+    shapes[i] = new BShape();
+  font.GetGlyphShapes(t.utf8.c_str(), t.points, &shapes[0]);
+  std::vector<float> path;
+  for (int32 i = 0; i < t.points; i++)
+    {
+      PathCollector c(&path, pointX[i], 0);
+      c.Iterate(shapes[i]);
+      delete shapes[i];
+    }
+  jfloatArray result = env->NewFloatArray(path.size());
+  if (!path.empty())
+    env->SetFloatArrayRegion(result, 0, path.size(), &path[0]);
   return result;
 }
 

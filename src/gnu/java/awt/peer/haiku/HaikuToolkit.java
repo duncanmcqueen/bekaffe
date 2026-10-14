@@ -182,7 +182,7 @@ public class HaikuToolkit
         ClasspathFontPeer font = fontCache.get(canonical);
         if (font == null)
           {
-            font = new OpenTypeFontPeer(name, attrs);
+            font = new HaikuFontPeer(name, attrs);
             fontCache.put(canonical, font);
           }
         return font;

@@ -3,6 +3,24 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-14, later): Haiku draws and measures all Java text
+
+- `HaikuFontPeer` (ClasspathFontPeer) wraps a BFont (`fontOpen(family, face)`). Logical
+  names: Dialog/SansSerif/Helvetica -> plain font, Monospaced/DialogInput/Courier -> fixed
+  font, Serif/TimesRoman -> Noto Serif (or DejaVu/Liberation Serif); other names are Haiku
+  families. `HaikuFontMetrics` uses BFont height and escapements (chars 0..255 cached per
+  size). `HaikuGlyphVector`: glyph codes = chars, positions = advances; outlines from
+  `BFont::GetGlyphShapes` (`fontOutline`, BShapeIterator -> flat float path).
+- `HaikuGraphics2D.drawGlyphVector`: for HaikuGlyphVectors with a Color paint, no
+  rotation/shear and default positions, the app_server draws the string into one shared
+  off-screen BBitmap (`fontRender`, coverage = channel average); Java blends it. LRU cache
+  of 500 rendered strings. Otherwise the outline is filled in place (Classpath's
+  drawGlyphVector translated first, which shifted gradient paints).
+- The earlier CJK fallback (`textRender`) is gone; Haiku's font fallback covers it.
+- `FontTest` (src/test) checks styles, CJK, rotation, gradients and that stringWidth matches
+  the drawn width (red underline). OpenTypeFontPeer and fonts-haiku.properties are no
+  longer used by the Haiku toolkit (still in the patch for OpenTypeFontPeer users).
+
 ## UPDATE (2026-10-14): modal, always-on-top, drag and drop, printing, input methods, rich clipboard
 
 - **Modal dialogs:** a shown modal dialog gets `B_MODAL_APP_WINDOW_FEEL`, and the event pump

@@ -1,4 +1,4 @@
-From 8b2c94451c1acef7a73e0be222388d358b0d857d Mon Sep 17 00:00:00 2001
+From 04d994a3b7ee3db6e7e8ce5e750045bae7ce5154 Mon Sep 17 00:00:00 2001
 From: duncanmcqueen <206344294+duncanmcqueen@users.noreply.github.com>
 Date: Tue, 13 Oct 2026 21:16:30 -0500
 Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
@@ -7,7 +7,8 @@ Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
 - gnu.java.awt.peer.haiku: an AWT toolkit with native Haiku windows,
   menus, file panels, cursors, clipboard (text, pictures, files, MIME
   data), drag and drop, printing (BPrintJob), input methods, modal and
-  always-on-top windows.
+  always-on-top windows. Text is measured and drawn with Haiku's fonts
+  (HaikuFontPeer: BFont metrics, app_server rendering, glyph outlines).
 - gnu.javax.sound.sampled.haiku: a javax.sound mixer that plays
   through the Haiku media server.
 - native/jni/haiku-peer: libhaikupeer (-lbe -ltracker -lmedia
@@ -40,25 +41,28 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  gnu/java/awt/peer/haiku/HaikuButtonPeer.java  |   97 +
  .../peer/haiku/HaikuCheckboxMenuItemPeer.java |   86 +
  .../awt/peer/haiku/HaikuCheckboxPeer.java     |  185 +
- gnu/java/awt/peer/haiku/HaikuChoicePeer.java  |  211 ++
+ gnu/java/awt/peer/haiku/HaikuChoicePeer.java  |  211 +
  gnu/java/awt/peer/haiku/HaikuClipboard.java   |   93 +
  gnu/java/awt/peer/haiku/HaikuCursor.java      |   77 +
  gnu/java/awt/peer/haiku/HaikuDialogPeer.java  |   94 +
  gnu/java/awt/peer/haiku/HaikuDragDrop.java    |  570 +++
  gnu/java/awt/peer/haiku/HaikuEventPump.java   |  758 ++++
- .../awt/peer/haiku/HaikuFileDialogPeer.java   |  205 ++
+ .../awt/peer/haiku/HaikuFileDialogPeer.java   |  205 +
+ gnu/java/awt/peer/haiku/HaikuFontMetrics.java |  143 +
+ gnu/java/awt/peer/haiku/HaikuFontPeer.java    |  404 ++
  gnu/java/awt/peer/haiku/HaikuFramePeer.java   |  170 +
- gnu/java/awt/peer/haiku/HaikuGraphics2D.java  |  847 +++++
+ gnu/java/awt/peer/haiku/HaikuGlyphVector.java |  282 ++
+ gnu/java/awt/peer/haiku/HaikuGraphics2D.java  |  854 +++++
  .../haiku/HaikuGraphicsConfiguration.java     |  130 +
  .../awt/peer/haiku/HaikuGraphicsDevice.java   |   78 +
- .../peer/haiku/HaikuGraphicsEnvironment.java  |   98 +
+ .../peer/haiku/HaikuGraphicsEnvironment.java  |  104 +
  .../awt/peer/haiku/HaikuInputMethods.java     |  238 ++
  gnu/java/awt/peer/haiku/HaikuLabelPeer.java   |  109 +
  gnu/java/awt/peer/haiku/HaikuListPeer.java    |  307 ++
  gnu/java/awt/peer/haiku/HaikuMenuBarPeer.java |  101 +
  .../awt/peer/haiku/HaikuMenuItemPeer.java     |  166 +
  gnu/java/awt/peer/haiku/HaikuMenuPeer.java    |  124 +
- gnu/java/awt/peer/haiku/HaikuNative.java      |  338 ++
+ gnu/java/awt/peer/haiku/HaikuNative.java      |  364 ++
  gnu/java/awt/peer/haiku/HaikuPanelPeer.java   |  106 +
  .../awt/peer/haiku/HaikuPopupMenuPeer.java    |   73 +
  gnu/java/awt/peer/haiku/HaikuPrintJob.java    |  214 ++
@@ -68,7 +72,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  gnu/java/awt/peer/haiku/HaikuSwingPeer.java   |  126 +
  .../awt/peer/haiku/HaikuSwingWrapper.java     |  254 ++
  .../awt/peer/haiku/HaikuTextFieldPeer.java    |  107 +
- gnu/java/awt/peer/haiku/HaikuToolkit.java     |  631 ++++
+ gnu/java/awt/peer/haiku/HaikuToolkit.java     |  631 +++
  .../awt/peer/haiku/HaikuTransferable.java     |  301 ++
  .../awt/peer/haiku/HaikuVolatileImage.java    |  114 +
  gnu/java/awt/peer/haiku/HaikuWindowPeer.java  |  503 +++
@@ -77,10 +81,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  gnu/javax/sound/sampled/haiku/HaikuLine.java  |  234 ++
  gnu/javax/sound/sampled/haiku/HaikuMixer.java |  230 ++
  .../sampled/haiku/HaikuMixerProvider.java     |   66 +
- .../sampled/haiku/HaikuSourceDataLine.java    |  205 ++
+ .../sampled/haiku/HaikuSourceDataLine.java    |  205 +
  gnu/javax/sound/sampled/haiku/Pcm.java        |  174 +
  include/Makefile.am                           |    9 +
- include/gnu_java_awt_peer_haiku_HaikuNative.h |  641 ++++
+ include/gnu_java_awt_peer_haiku_HaikuNative.h |  697 ++++
  ...gnu_javax_sound_sampled_haiku_HaikuAudio.h |  133 +
  java/awt/Frame.java                           |    6 +-
  java/awt/dnd/DragSource.java                  |   14 +-
@@ -93,12 +97,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  lib/Makefile.am                               |    4 +
  native/jni/Makefile.am                        |    9 +-
  native/jni/haiku-peer/Makefile.am             |   12 +
- .../gnu_java_awt_peer_haiku_HaikuNative.cpp   | 3082 +++++++++++++++++
+ .../gnu_java_awt_peer_haiku_HaikuNative.cpp   | 3384 +++++++++++++++++
  .../java-net/java_net_VMNetworkInterface.c    |    5 +
  native/jni/native-lib/cpnet.c                 |    7 +-
  .../javax.sound.sampled.spi.MixerProvider.in  |    1 +
  .../gnu/java/awt/font/fonts-haiku.properties  |   65 +
- 63 files changed, 13553 insertions(+), 38 deletions(-)
+ 66 files changed, 14779 insertions(+), 38 deletions(-)
  create mode 100644 gnu/java/awt/peer/haiku/HaikuButtonPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCheckboxMenuItemPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCheckboxPeer.java
@@ -109,7 +113,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 gnu/java/awt/peer/haiku/HaikuDragDrop.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuEventPump.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuFileDialogPeer.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuFontMetrics.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuFontPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuFramePeer.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuGlyphVector.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuGraphics2D.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuGraphicsConfiguration.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuGraphicsDevice.java
@@ -2697,6 +2704,565 @@ index 0000000..20f2b48
 +    // Used the next time the panel opens.
 +  }
 +}
+diff --git a/gnu/java/awt/peer/haiku/HaikuFontMetrics.java b/gnu/java/awt/peer/haiku/HaikuFontMetrics.java
+new file mode 100644
+index 0000000..f31f46d
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuFontMetrics.java
+@@ -0,0 +1,143 @@
++/* HaikuFontMetrics.java -- font metrics from Haiku's BFont
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Font;
++import java.awt.FontMetrics;
++import java.awt.Graphics;
++import java.awt.font.LineMetrics;
++import java.awt.geom.Rectangle2D;
++
++/**
++ * FontMetrics of a {@link HaikuFontPeer}. Widths are the BFont advances
++ * that the app_server uses to draw the text.
++ */
++final class HaikuFontMetrics
++  extends FontMetrics
++{
++
++  private final HaikuFontPeer peer;
++
++  private final HaikuFontPeer.Metrics m;
++
++  HaikuFontMetrics(Font font, HaikuFontPeer peer)
++  {
++    super(font);
++    this.peer = peer;
++    m = peer.metrics(font.getSize2D());
++  }
++
++  public int getAscent()
++  {
++    return (int) Math.ceil(m.ascent);
++  }
++
++  public int getDescent()
++  {
++    return (int) Math.ceil(m.descent);
++  }
++
++  public int getLeading()
++  {
++    return Math.round(m.leading);
++  }
++
++  public int getMaxAscent()
++  {
++    return getAscent();
++  }
++
++  public int getMaxDescent()
++  {
++    return getDescent();
++  }
++
++  public int getMaxAdvance()
++  {
++    return (int) Math.ceil(m.maxAdvance);
++  }
++
++  public int charWidth(char c)
++  {
++    if (c < 256)
++      return Math.round(m.latin[c]);
++    return Math.round(peer.width(String.valueOf(c), font.getSize2D()));
++  }
++
++  public int charWidth(int codePoint)
++  {
++    if (codePoint < 0x10000)
++      return charWidth((char) codePoint);
++    return Math.round(peer.width(new String(Character.toChars(codePoint)),
++                                 font.getSize2D()));
++  }
++
++  public int stringWidth(String s)
++  {
++    return Math.round(peer.width(s, font.getSize2D()));
++  }
++
++  public int charsWidth(char[] data, int off, int len)
++  {
++    return stringWidth(new String(data, off, len));
++  }
++
++  public int[] getWidths()
++  {
++    int[] w = new int[256];
++    for (int i = 0; i < 256; i++)
++      w[i] = Math.round(m.latin[i]);
++    return w;
++  }
++
++  public LineMetrics getLineMetrics(String s, Graphics g)
++  {
++    return new HaikuFontPeer.HaikuLineMetrics(m, s.length());
++  }
++
++  public Rectangle2D getStringBounds(String s, Graphics g)
++  {
++    return new Rectangle2D.Float(0, -m.ascent, peer.width(s, font.getSize2D()),
++                                 m.ascent + m.descent + m.leading);
++  }
++
++  public boolean hasUniformLineMetrics()
++  {
++    return true;
++  }
++}
+diff --git a/gnu/java/awt/peer/haiku/HaikuFontPeer.java b/gnu/java/awt/peer/haiku/HaikuFontPeer.java
+new file mode 100644
+index 0000000..2d01c9d
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuFontPeer.java
+@@ -0,0 +1,404 @@
++/* HaikuFontPeer.java -- Java fonts backed by Haiku's BFont
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import gnu.java.awt.peer.ClasspathFontPeer;
++
++import java.awt.Font;
++import java.awt.FontMetrics;
++import java.awt.font.FontRenderContext;
++import java.awt.font.GlyphVector;
++import java.awt.font.LineMetrics;
++import java.awt.geom.Rectangle2D;
++import java.text.CharacterIterator;
++import java.util.HashMap;
++import java.util.Locale;
++import java.util.Map;
++
++/**
++ * A font backed by a Haiku BFont. Haiku measures the text (BFont
++ * escapements) and the app_server draws it, so Java text looks like the
++ * rest of Haiku: hinted, anti-aliased, and with Haiku's font fallback
++ * for scripts that the font lacks.
++ *
++ * The Java logical fonts map to Haiku's fonts: Dialog and SansSerif to
++ * the plain font, Monospaced and DialogInput to the fixed font, Serif to
++ * a serif family. Other names are Haiku font families.
++ */
++public class HaikuFontPeer
++  extends ClasspathFontPeer
++{
++
++  // Face flags (Font.h).
++  private static final int B_ITALIC_FACE = 0x01;
++  private static final int B_BOLD_FACE = 0x20;
++  private static final int B_REGULAR_FACE = 0x40;
++
++  private static final String[] SERIF_FAMILIES = {
++    "Noto Serif", "DejaVu Serif", "Liberation Serif", "Noto Serif Display"
++  };
++
++  /** The native BFont. */
++  final long handle;
++
++  /** The Haiku family name. */
++  final String haikuFamily;
++
++  private final HashMap<Float,Metrics> metrics = new HashMap<Float,Metrics>();
++
++  private static String[] families;
++
++  HaikuFontPeer(String name, Map attrs)
++  {
++    super(name, attrs);
++    HaikuNative.ensureInitialized();
++    String fam = resolveFamily(name);
++    int face = 0;
++    if ((style & Font.BOLD) != 0)
++      face |= B_BOLD_FACE;
++    if ((style & Font.ITALIC) != 0)
++      face |= B_ITALIC_FACE;
++    if (face == 0)
++      face = B_REGULAR_FACE;
++    long h = HaikuNative.fontOpen(fam, face);
++    if (h == 0)
++      {
++        fam = "";
++        h = HaikuNative.fontOpen("", face);
++      }
++    handle = h;
++    haikuFamily = fam.length() > 0 ? fam : HaikuNative.fontFamilies(1)[0];
++  }
++
++  /** The installed Haiku font families. */
++  static synchronized String[] haikuFamilies()
++  {
++    if (families == null)
++      {
++        HaikuNative.ensureInitialized();
++        families = HaikuNative.fontFamilies(0);
++      }
++    return families;
++  }
++
++  private static String findFamily(String name)
++  {
++    String[] f = haikuFamilies();
++    for (int i = 0; i < f.length; i++)
++      if (f[i].equalsIgnoreCase(name))
++        return f[i];
++    return null;
++  }
++
++  /** The Haiku family for a Java font name; "" is the plain font. */
++  private static String resolveFamily(String name)
++  {
++    String n = name == null ? "" : name.toLowerCase(Locale.ENGLISH);
++    if (n.equals("dialog") || n.equals("sansserif") || n.equals("default")
++        || n.equals("helvetica") || n.equals("arial") || n.length() == 0)
++      return "";
++    if (n.equals("monospaced") || n.equals("dialoginput")
++        || n.equals("courier") || n.equals("courier new"))
++      return HaikuNative.fontFamilies(2)[0];
++    if (n.equals("serif") || n.equals("timesroman") || n.equals("times")
++        || n.equals("times new roman"))
++      {
++        for (int i = 0; i < SERIF_FAMILIES.length; i++)
++          if (findFamily(SERIF_FAMILIES[i]) != null)
++            return SERIF_FAMILIES[i];
++        return "";
++      }
++    String f = findFamily(name);
++    return f != null ? f : "";
++  }
++
++  /** Metrics at one size: ascent, descent, leading, max advance. */
++  static final class Metrics
++  {
++    final float ascent, descent, leading, maxAdvance;
++    /** Advances of the characters 0..255. */
++    final float[] latin = new float[256];
++
++    Metrics(long font, float size)
++    {
++      float[] m = new float[4];
++      HaikuNative.fontMetrics(font, size, m);
++      ascent = m[0];
++      descent = m[1];
++      leading = m[2];
++      maxAdvance = m[3];
++      char[] cs = new char[256];
++      for (int i = 0; i < 256; i++)
++        cs[i] = i < 32 || (i >= 0x7f && i < 0xa0) ? ' ' : (char) i;
++      HaikuNative.fontAdvances(font, size, new String(cs), latin);
++      for (int i = 0; i < 256; i++)
++        if (i < 32 || (i >= 0x7f && i < 0xa0))
++          latin[i] = 0;
++    }
++  }
++
++  Metrics metrics(float size)
++  {
++    synchronized (metrics)
++      {
++        Float key = new Float(size);
++        Metrics m = metrics.get(key);
++        if (m == null)
++          {
++            m = new Metrics(handle, size);
++            metrics.put(key, m);
++          }
++        return m;
++      }
++  }
++
++  /** The advance of each char of text. */
++  float[] advances(String text, float size)
++  {
++    int n = text.length();
++    float[] a = new float[n];
++    boolean latin = true;
++    for (int i = 0; i < n && latin; i++)
++      latin = text.charAt(i) < 256;
++    if (latin)
++      {
++        Metrics m = metrics(size);
++        for (int i = 0; i < n; i++)
++          a[i] = m.latin[text.charAt(i)];
++      }
++    else if (n > 0)
++      HaikuNative.fontAdvances(handle, size, text, a);
++    return a;
++  }
++
++  float width(String text, float size)
++  {
++    float[] a = advances(text, size);
++    float w = 0;
++    for (int i = 0; i < a.length; i++)
++      w += a[i];
++    return w;
++  }
++
++  static String text(CharacterIterator ci, int start, int limit)
++  {
++    StringBuilder b = new StringBuilder(Math.max(0, limit - start));
++    for (char c = ci.setIndex(start); ci.getIndex() < limit; c = ci.next())
++      b.append(c);
++    return b.toString();
++  }
++
++  // ClasspathFontPeer.
++
++  public boolean canDisplay(Font font, int c)
++  {
++    boolean[] has = new boolean[1];
++    HaikuNative.fontHasGlyphs(handle, String.valueOf((char) c), has);
++    return has[0];
++  }
++
++  public int canDisplayUpTo(Font font, CharacterIterator ci, int start,
++                            int limit)
++  {
++    String t = text(ci, start, limit);
++    boolean[] has = new boolean[t.length()];
++    HaikuNative.fontHasGlyphs(handle, t, has);
++    for (int i = 0; i < has.length; i++)
++      if (! has[i])
++        return start + i;
++    return -1;
++  }
++
++  public String getSubFamilyName(Font font, Locale locale)
++  {
++    if ((style & Font.BOLD) != 0 && (style & Font.ITALIC) != 0)
++      return "Bold Italic";
++    if ((style & Font.BOLD) != 0)
++      return "Bold";
++    if ((style & Font.ITALIC) != 0)
++      return "Italic";
++    return "Regular";
++  }
++
++  public String getPostScriptName(Font font)
++  {
++    return haikuFamily.replace(" ", "") + "-"
++           + getSubFamilyName(font, null).replace(" ", "");
++  }
++
++  public int getNumGlyphs(Font font)
++  {
++    return 0x10000;
++  }
++
++  public int getMissingGlyphCode(Font font)
++  {
++    return 0;
++  }
++
++  public byte getBaselineFor(Font font, char c)
++  {
++    return Font.ROMAN_BASELINE;
++  }
++
++  public String getGlyphName(Font font, int glyphIndex)
++  {
++    String hex = Integer.toHexString(glyphIndex).toUpperCase();
++    while (hex.length() < 4)
++      hex = "0" + hex;
++    return "uni" + hex;
++  }
++
++  public GlyphVector createGlyphVector(Font font, FontRenderContext frc,
++                                       CharacterIterator ci)
++  {
++    return new HaikuGlyphVector(font, this, frc,
++                                text(ci, ci.getBeginIndex(), ci.getEndIndex()));
++  }
++
++  /** Glyph codes are the characters. */
++  public GlyphVector createGlyphVector(Font font, FontRenderContext frc,
++                                       int[] glyphCodes)
++  {
++    char[] cs = new char[glyphCodes.length];
++    for (int i = 0; i < cs.length; i++)
++      cs[i] = (char) glyphCodes[i];
++    return new HaikuGlyphVector(font, this, frc, new String(cs));
++  }
++
++  public GlyphVector layoutGlyphVector(Font font, FontRenderContext frc,
++                                       char[] chars, int start, int limit,
++                                       int flags)
++  {
++    return new HaikuGlyphVector(font, this, frc,
++                                new String(chars, start, limit - start));
++  }
++
++  public FontMetrics getFontMetrics(Font font)
++  {
++    return new HaikuFontMetrics(font, this);
++  }
++
++  public boolean hasUniformLineMetrics(Font font)
++  {
++    return true;
++  }
++
++  public LineMetrics getLineMetrics(Font font, CharacterIterator ci,
++                                    int begin, int limit,
++                                    FontRenderContext frc)
++  {
++    return new HaikuLineMetrics(metrics(font.getSize2D()), limit - begin);
++  }
++
++  public Rectangle2D getMaxCharBounds(Font font, FontRenderContext frc)
++  {
++    Metrics m = metrics(font.getSize2D());
++    return new Rectangle2D.Float(0, -m.ascent, m.maxAdvance,
++                                 m.ascent + m.descent + m.leading);
++  }
++
++  /** Line metrics from the BFont height. */
++  static final class HaikuLineMetrics
++    extends LineMetrics
++  {
++    private final Metrics m;
++    private final int chars;
++
++    HaikuLineMetrics(Metrics m, int chars)
++    {
++      this.m = m;
++      this.chars = chars;
++    }
++
++    public float getAscent()
++    {
++      return m.ascent;
++    }
++
++    public int getBaselineIndex()
++    {
++      return Font.ROMAN_BASELINE;
++    }
++
++    public float[] getBaselineOffsets()
++    {
++      return new float[] { 0, (m.descent - m.ascent) / 2, -m.ascent };
++    }
++
++    public float getDescent()
++    {
++      return m.descent;
++    }
++
++    public float getHeight()
++    {
++      return m.ascent + m.descent + m.leading;
++    }
++
++    public float getLeading()
++    {
++      return m.leading;
++    }
++
++    public int getNumChars()
++    {
++      return chars;
++    }
++
++    public float getStrikethroughOffset()
++    {
++      return -m.ascent / 3;
++    }
++
++    public float getStrikethroughThickness()
++    {
++      return Math.max(1, m.ascent / 12);
++    }
++
++    public float getUnderlineOffset()
++    {
++      return Math.max(1, m.descent / 2);
++    }
++
++    public float getUnderlineThickness()
++    {
++      return Math.max(1, m.ascent / 12);
++    }
++  }
++}
 diff --git a/gnu/java/awt/peer/haiku/HaikuFramePeer.java b/gnu/java/awt/peer/haiku/HaikuFramePeer.java
 new file mode 100644
 index 0000000..11f0946
@@ -2873,12 +3439,300 @@ index 0000000..11f0946
 +    return getOuterBounds();
 +  }
 +}
+diff --git a/gnu/java/awt/peer/haiku/HaikuGlyphVector.java b/gnu/java/awt/peer/haiku/HaikuGlyphVector.java
+new file mode 100644
+index 0000000..99731e0
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuGlyphVector.java
+@@ -0,0 +1,282 @@
++/* HaikuGlyphVector.java -- a glyph vector of a Haiku font
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Font;
++import java.awt.Shape;
++import java.awt.font.FontRenderContext;
++import java.awt.font.GlyphJustificationInfo;
++import java.awt.font.GlyphMetrics;
++import java.awt.font.GlyphVector;
++import java.awt.geom.AffineTransform;
++import java.awt.geom.GeneralPath;
++import java.awt.geom.Point2D;
++import java.awt.geom.Rectangle2D;
++
++/**
++ * A glyph vector of a {@link HaikuFontPeer}. The glyph codes are the
++ * characters; the positions come from the BFont advances.
++ *
++ * HaikuGraphics2D draws a glyph vector whose positions were not changed
++ * by asking the app_server to draw its text. Outlines (for shapes, other
++ * transforms and paints) come from BFont::GetGlyphShapes.
++ */
++final class HaikuGlyphVector
++  extends GlyphVector
++{
++
++  final Font font;
++
++  final HaikuFontPeer peer;
++
++  final String text;
++
++  private final FontRenderContext frc;
++
++  /** x, y of each glyph and the end position: 2 * (n + 1) values. */
++  private final float[] positions;
++
++  /** True after setGlyphPosition() or setGlyphTransform(). */
++  boolean customLayout;
++
++  private Shape outline;
++
++  HaikuGlyphVector(Font font, HaikuFontPeer peer, FontRenderContext frc,
++                   String text)
++  {
++    this.font = font;
++    this.peer = peer;
++    this.frc = frc;
++    this.text = text;
++    positions = new float[2 * (text.length() + 1)];
++    performDefaultLayout();
++  }
++
++  public void performDefaultLayout()
++  {
++    float[] adv = peer.advances(text, font.getSize2D());
++    float x = 0;
++    for (int i = 0; i < adv.length; i++)
++      {
++        positions[2 * i] = x;
++        positions[2 * i + 1] = 0;
++        x += adv[i];
++      }
++    positions[2 * adv.length] = x;
++    positions[2 * adv.length + 1] = 0;
++    customLayout = false;
++    outline = null;
++  }
++
++  public boolean equals(GlyphVector gv)
++  {
++    if (! (gv instanceof HaikuGlyphVector))
++      return false;
++    HaikuGlyphVector o = (HaikuGlyphVector) gv;
++    return o.font.equals(font) && o.text.equals(text)
++           && java.util.Arrays.equals(o.positions, positions);
++  }
++
++  public Font getFont()
++  {
++    return font;
++  }
++
++  public FontRenderContext getFontRenderContext()
++  {
++    return frc;
++  }
++
++  public int getNumGlyphs()
++  {
++    return text.length();
++  }
++
++  public int getGlyphCode(int i)
++  {
++    return text.charAt(i);
++  }
++
++  public int[] getGlyphCodes(int begin, int count, int[] codes)
++  {
++    if (codes == null)
++      codes = new int[count];
++    for (int i = 0; i < count; i++)
++      codes[i] = text.charAt(begin + i);
++    return codes;
++  }
++
++  public Point2D getGlyphPosition(int i)
++  {
++    return new Point2D.Float(positions[2 * i], positions[2 * i + 1]);
++  }
++
++  public float[] getGlyphPositions(int begin, int count, float[] out)
++  {
++    if (out == null)
++      out = new float[2 * count];
++    System.arraycopy(positions, 2 * begin, out, 0, 2 * count);
++    return out;
++  }
++
++  public void setGlyphPosition(int i, Point2D p)
++  {
++    positions[2 * i] = (float) p.getX();
++    positions[2 * i + 1] = (float) p.getY();
++    customLayout = true;
++    outline = null;
++  }
++
++  public AffineTransform getGlyphTransform(int i)
++  {
++    return null;
++  }
++
++  public void setGlyphTransform(int i, AffineTransform t)
++  {
++    // Glyphs are not transformed one by one.
++  }
++
++  public GlyphJustificationInfo getGlyphJustificationInfo(int i)
++  {
++    return null;
++  }
++
++  private float advance(int i)
++  {
++    return positions[2 * (i + 1)] - positions[2 * i];
++  }
++
++  public Rectangle2D getLogicalBounds()
++  {
++    HaikuFontPeer.Metrics m = peer.metrics(font.getSize2D());
++    return new Rectangle2D.Float(0, -m.ascent, positions[2 * text.length()],
++                                 m.ascent + m.descent + m.leading);
++  }
++
++  public Rectangle2D getVisualBounds()
++  {
++    Rectangle2D r = getOutline().getBounds2D();
++    if (r.isEmpty())
++      return getLogicalBounds();
++    return r;
++  }
++
++  public Shape getGlyphLogicalBounds(int i)
++  {
++    HaikuFontPeer.Metrics m = peer.metrics(font.getSize2D());
++    return new Rectangle2D.Float(positions[2 * i],
++                                 positions[2 * i + 1] - m.ascent, advance(i),
++                                 m.ascent + m.descent + m.leading);
++  }
++
++  public Shape getGlyphVisualBounds(int i)
++  {
++    return getGlyphOutline(i).getBounds2D();
++  }
++
++  public GlyphMetrics getGlyphMetrics(int i)
++  {
++    Rectangle2D b = getGlyphOutline(i).getBounds2D();
++    b.setRect(b.getX() - positions[2 * i], b.getY() - positions[2 * i + 1],
++              b.getWidth(), b.getHeight());
++    char c = text.charAt(i);
++    byte type = Character.isWhitespace(c) ? GlyphMetrics.WHITESPACE
++                                          : GlyphMetrics.STANDARD;
++    return new GlyphMetrics(advance(i), b, type);
++  }
++
++  /** The outline of all glyphs at their positions. */
++  public Shape getOutline()
++  {
++    if (outline == null)
++      outline = path(text, 0, text.length());
++    return outline;
++  }
++
++  public Shape getOutline(float x, float y)
++  {
++    GeneralPath p = new GeneralPath(getOutline());
++    p.transform(AffineTransform.getTranslateInstance(x, y));
++    return p;
++  }
++
++  public Shape getGlyphOutline(int i)
++  {
++    return path(text, i, i + 1);
++  }
++
++  /** The outline of glyphs begin..end at their positions. */
++  private Shape path(String t, int begin, int end)
++  {
++    String part = t.substring(begin, end);
++    float[] xs = new float[part.length()];
++    for (int i = 0; i < xs.length; i++)
++      xs[i] = positions[2 * (begin + i)];
++    float[] p = HaikuNative.fontOutline(peer.handle, font.getSize2D(), part,
++                                        xs);
++    GeneralPath path = new GeneralPath(GeneralPath.WIND_NON_ZERO);
++    int k = 0;
++    while (k < p.length)
++      {
++        switch ((int) p[k++])
++          {
++          case 0:
++            path.moveTo(p[k], p[k + 1]);
++            k += 2;
++            break;
++          case 1:
++            path.lineTo(p[k], p[k + 1]);
++            k += 2;
++            break;
++          case 2:
++            path.curveTo(p[k], p[k + 1], p[k + 2], p[k + 3], p[k + 4],
++                         p[k + 5]);
++            k += 6;
++            break;
++          default:
++            path.closePath();
++            break;
++          }
++      }
++    AffineTransform ft = font.getTransform();
++    if (ft != null && ! ft.isIdentity())
++      path.transform(ft);
++    return path;
++  }
++}
 diff --git a/gnu/java/awt/peer/haiku/HaikuGraphics2D.java b/gnu/java/awt/peer/haiku/HaikuGraphics2D.java
 new file mode 100644
-index 0000000..9dad5b9
+index 0000000..5427c08
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuGraphics2D.java
-@@ -0,0 +1,847 @@
+@@ -0,0 +1,854 @@
 +/* HaikuGraphics2D.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -3581,91 +4435,98 @@ index 0000000..9dad5b9
 +    markDirty(dst.x, dst.y, dst.width, dst.height);
 +  }
 +
-+  // Text with characters that the font cannot show.
++  // Text: Haiku fonts are drawn by the app_server.
 +
-+  public void drawString(String text, int x, int y)
++  /** A rendered string: coverage, size, baseline and origin. */
++  private static final class TextMask
 +  {
-+    if (! drawWithFallback(text, x, y))
-+      super.drawString(text, x, y);
++    final byte[] cover;
++    final int w, h, baseline, originX;
++
++    TextMask(byte[] cover, int[] dims)
++    {
++      this.cover = cover;
++      w = dims[0];
++      h = dims[1];
++      baseline = dims[2];
++      originX = dims[3];
++    }
 +  }
 +
-+  public void drawString(String text, float x, float y)
++  /** Recently drawn strings; Swing draws the same labels again and again. */
++  private static final java.util.LinkedHashMap<String,TextMask> textCache =
++    new java.util.LinkedHashMap<String,TextMask>(256, 0.75f, true)
++    {
++      protected boolean removeEldestEntry(java.util.Map.Entry<String,TextMask> e)
++      {
++        return size() > 500;
++      }
++    };
++
++  private static TextMask renderText(HaikuFontPeer peer, float size,
++                                     String text)
 +  {
-+    if (! drawWithFallback(text, x, y))
-+      super.drawString(text, x, y);
++    String key = peer.handle + "/" + size + "/" + text;
++    synchronized (textCache)
++      {
++        TextMask m = textCache.get(key);
++        if (m != null)
++          return m;
++      }
++    int[] dims = new int[4];
++    byte[] cover = HaikuNative.fontRender(peer.handle, size, text, dims);
++    if (cover == null)
++      return null;
++    TextMask m = new TextMask(cover, dims);
++    synchronized (textCache)
++      {
++        textCache.put(key, m);
++      }
++    return m;
 +  }
 +
 +  /**
-+   * Draws text whose font lacks some glyphs: the runs the font has are
-+   * drawn as usual, the others with Haiku's fonts (HaikuNative.textRender)
-+   * in the current colour.
-+   *
-+   * @return false if the font has all glyphs, or the fallback cannot be
-+   *         used (no direct pixels, rotated text, a paint that is not a
-+   *         colour); the caller then draws normally
++   * Draws glyph vectors of Haiku fonts with the app_server, at the scale
++   * of the transform. Rotated or sheared text, transformed fonts, paints
++   * that are not colours and moved glyphs are filled as outlines.
 +   */
-+  private boolean drawWithFallback(String text, float x, float y)
++  public void drawGlyphVector(java.awt.font.GlyphVector gv, float x, float y)
 +  {
-+    if (text == null || text.length() == 0 || pixels == null
-+        || ! (getPaint() instanceof Color))
-+      return false;
-+    java.awt.Font f = getFont();
-+    java.awt.font.FontRenderContext frc = getFontRenderContext();
-+    java.awt.font.GlyphVector gv = f.createGlyphVector(frc, text);
-+    int n = text.length();
-+    if (gv.getNumGlyphs() != n)
-+      return false;
-+    boolean[] has = new boolean[n];
-+    boolean missing = false;
-+    for (int i = 0; i < n; i++)
++    if (gv instanceof HaikuGlyphVector && pixels != null
++        && getPaint() instanceof Color)
 +      {
-+        has[i] = gv.getGlyphCode(i) != 0 || text.charAt(i) < ' ';
-+        missing |= ! has[i];
-+      }
-+    if (! missing)
-+      return false;
-+    java.awt.geom.AffineTransform t = getTransform();
-+    if ((t.getType() & (java.awt.geom.AffineTransform.TYPE_GENERAL_ROTATION
-+                        | java.awt.geom.AffineTransform.TYPE_QUADRANT_ROTATION
-+                        | java.awt.geom.AffineTransform.TYPE_FLIP
-+                        | java.awt.geom.AffineTransform.TYPE_GENERAL_TRANSFORM))
-+        != 0)
-+      return false;
-+    double sx = t.getScaleX();
-+    double sy = t.getScaleY();
-+    float cx = x;
-+    int i = 0;
-+    while (i < n)
-+      {
-+        int j = i + 1;
-+        while (j < n && has[j] == has[i])
-+          j++;
-+        String run = text.substring(i, j);
-+        if (has[i])
++        HaikuGlyphVector hgv = (HaikuGlyphVector) gv;
++        java.awt.geom.AffineTransform t = getTransform();
++        java.awt.geom.AffineTransform ft = hgv.font.getTransform();
++        double sx = t.getScaleX();
++        double sy = t.getScaleY();
++        if (! hgv.customLayout && t.getShearX() == 0 && t.getShearY() == 0
++            && sx > 0 && Math.abs(sx - sy) < 1e-6
++            && (ft == null || ft.isIdentity()))
 +          {
-+            super.drawString(run, cx, y);
-+            cx += (float) f.getStringBounds(run, frc).getWidth();
-+          }
-+        else
-+          {
-+            int[] dims = new int[3];
-+            int[] cover = HaikuNative.textRender(run, (float) (f.getSize2D() * sy),
-+                                                 f.isBold(), f.isItalic(), dims);
-+            if (cover != null)
++            if (hgv.text.length() == 0)
++              return;
++            TextMask m = renderText(hgv.peer,
++                                    (float) (hgv.font.getSize2D() * sy),
++                                    hgv.text);
++            if (m != null)
 +              {
-+                int dx = (int) Math.round(t.getTranslateX() + sx * cx);
-+                int dy = (int) Math.round(t.getTranslateY() + sy * y) - dims[2];
-+                blendCoverage(cover, dims[0], dims[1], dx, dy);
-+                cx += dims[0] / sx;
++                int dx = (int) Math.round(t.getTranslateX() + sx * x)
++                         - m.originX;
++                int dy = (int) Math.round(t.getTranslateY() + sy * y)
++                         - m.baseline;
++                blendCoverage(m.cover, m.w, m.h, dx, dy);
++                return;
 +              }
 +          }
-+        i = j;
 +      }
-+    return true;
++    // AbstractGraphics2D translates before filling, which also moves
++    // gradient and texture paints; fill the outline in place instead.
++    fillShape(gv.getOutline(x, y), true);
 +  }
 +
 +  /** Blends the current colour through a coverage mask at (dx, dy). */
-+  private void blendCoverage(int[] cover, int w, int h, int dx, int dy)
++  private void blendCoverage(byte[] cover, int w, int h, int dx, int dy)
 +  {
 +    Color c = (Color) getPaint();
 +    int rgb = c.getRGB();
@@ -3682,7 +4543,7 @@ index 0000000..9dad5b9
 +    for (int yy = area.y; yy < area.y + area.height; yy++)
 +      for (int xx = area.x; xx < area.x + area.width; xx++)
 +        {
-+          int a = cover[(yy - dy) * w + (xx - dx)] * ca / 255;
++          int a = (cover[(yy - dy) * w + (xx - dx)] & 0xff) * ca / 255;
 +          if (a == 0)
 +            continue;
 +          int k = yy * scan + xx;
@@ -3948,10 +4809,10 @@ index 0000000..b1ed538
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuGraphicsEnvironment.java b/gnu/java/awt/peer/haiku/HaikuGraphicsEnvironment.java
 new file mode 100644
-index 0000000..992d4ec
+index 0000000..d5287bb
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuGraphicsEnvironment.java
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,104 @@
 +/* HaikuGraphicsEnvironment.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -3992,7 +4853,6 @@ index 0000000..992d4ec
 +
 +package gnu.java.awt.peer.haiku;
 +
-+import gnu.java.awt.font.OpenTypeFontPeer;
 +
 +import java.awt.Font;
 +import java.awt.Graphics2D;
@@ -4047,7 +4907,14 @@ index 0000000..992d4ec
 +
 +  public String[] getAvailableFontFamilyNames(Locale l)
 +  {
-+    return OpenTypeFontPeer.getAvailableFontFamilyNames(l);
++    // The Java logical fonts, then Haiku's font families.
++    String[] logical = { "Dialog", "DialogInput", "Monospaced", "SansSerif",
++                         "Serif" };
++    String[] haiku = HaikuFontPeer.haikuFamilies();
++    String[] all = new String[logical.length + haiku.length];
++    System.arraycopy(logical, 0, all, 0, logical.length);
++    System.arraycopy(haiku, 0, all, logical.length, haiku.length);
++    return all;
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuInputMethods.java b/gnu/java/awt/peer/haiku/HaikuInputMethods.java
@@ -5133,10 +6000,10 @@ index 0000000..d96f7c0
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuNative.java b/gnu/java/awt/peer/haiku/HaikuNative.java
 new file mode 100644
-index 0000000..21dd958
+index 0000000..149b5ff
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuNative.java
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,364 @@
 +/* HaikuNative.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -5464,12 +6331,38 @@ index 0000000..21dd958
 +  static native void imLocationReply(long window, int[] xs, int[] ys,
 +                                     float height);
 +
++  // Fonts (BFont). Sizes are pixels (points at 72 dpi).
++
++  /** Opens a font ("" = the plain font); 0 if the family is unknown. */
++  static native long fontOpen(String family, int face);
++
++  /** which: 0 all families, 1 the plain font's, 2 the fixed font's. */
++  static native String[] fontFamilies(int which);
++
++  /** out = ascent, descent, leading, max advance. */
++  static native void fontMetrics(long font, float size, float[] out);
++
++  /** The advance of each UTF-16 unit of text. */
++  static native void fontAdvances(long font, float size, String text,
++                                  float[] out);
++
++  static native float fontWidth(long font, float size, String text);
++
++  static native void fontHasGlyphs(long font, String text, boolean[] out);
++
 +  /**
-+   * Draws text with Haiku's fonts. Returns its coverage (0..255) per
-+   * pixel; dims = width, height, ascent.
++   * Draws text; returns coverage (0..255) per pixel. dims = width,
++   * height, baseline y, origin x.
 +   */
-+  static native int[] textRender(String text, float size, boolean bold,
-+                                 boolean italic, int[] dims);
++  static native byte[] fontRender(long font, float size, String text,
++                                  int[] dims);
++
++  /**
++   * The outline of text: 0 x y = move, 1 x y = line,
++   * 2 x1 y1 x2 y2 x3 y3 = cubic, 3 = close. xs: x of each unit, or null.
++   */
++  static native float[] fontOutline(long font, float size, String text,
++                                    float[] xs);
 +
 +  /** Shows composing text near (x, y) on the screen; null hides it. */
 +  static native void imShowComposition(String text, int x, int y,
@@ -7118,7 +8011,7 @@ index 0000000..9b2b191
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuToolkit.java b/gnu/java/awt/peer/haiku/HaikuToolkit.java
 new file mode 100644
-index 0000000..ac96352
+index 0000000..49a4a42
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuToolkit.java
 @@ -0,0 +1,631 @@
@@ -7306,7 +8199,7 @@ index 0000000..ac96352
 +        ClasspathFontPeer font = fontCache.get(canonical);
 +        if (font == null)
 +          {
-+            font = new OpenTypeFontPeer(name, attrs);
++            font = new HaikuFontPeer(name, attrs);
 +            fontCache.put(canonical, font);
 +          }
 +        return font;
@@ -10042,10 +10935,10 @@ index 1656c5c..2791054 100644
  gnu_java_awt_peer_qt_QtScreenDevice.h: $(top_srcdir)/gnu/java/awt/peer/qt/QtScreenDevice.java
 diff --git a/include/gnu_java_awt_peer_haiku_HaikuNative.h b/include/gnu_java_awt_peer_haiku_HaikuNative.h
 new file mode 100644
-index 0000000..913b00b
+index 0000000..89e5e26
 --- /dev/null
 +++ b/include/gnu_java_awt_peer_haiku_HaikuNative.h
-@@ -0,0 +1,641 @@
+@@ -0,0 +1,697 @@
 +/* DO NOT EDIT THIS FILE - it is machine generated */
 +#include <jni.h>
 +/* Header for class gnu_java_awt_peer_haiku_HaikuNative */
@@ -10669,11 +11562,67 @@ index 0000000..913b00b
 +
 +/*
 + * Class:     gnu_java_awt_peer_haiku_HaikuNative
-+ * Method:    textRender
-+ * Signature: (Ljava/lang/String;FZZ[I)[I
++ * Method:    fontOpen
++ * Signature: (Ljava/lang/String;I)J
 + */
-+JNIEXPORT jintArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_textRender
-+  (JNIEnv *, jclass, jstring, jfloat, jboolean, jboolean, jintArray);
++JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontOpen
++  (JNIEnv *, jclass, jstring, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontFamilies
++ * Signature: (I)[Ljava/lang/String;
++ */
++JNIEXPORT jobjectArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontFamilies
++  (JNIEnv *, jclass, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontMetrics
++ * Signature: (JF[F)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontMetrics
++  (JNIEnv *, jclass, jlong, jfloat, jfloatArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontAdvances
++ * Signature: (JFLjava/lang/String;[F)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontAdvances
++  (JNIEnv *, jclass, jlong, jfloat, jstring, jfloatArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontWidth
++ * Signature: (JFLjava/lang/String;)F
++ */
++JNIEXPORT jfloat JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontWidth
++  (JNIEnv *, jclass, jlong, jfloat, jstring);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontHasGlyphs
++ * Signature: (JLjava/lang/String;[Z)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontHasGlyphs
++  (JNIEnv *, jclass, jlong, jstring, jbooleanArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontRender
++ * Signature: (JFLjava/lang/String;[I)[B
++ */
++JNIEXPORT jbyteArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontRender
++  (JNIEnv *, jclass, jlong, jfloat, jstring, jintArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    fontOutline
++ * Signature: (JFLjava/lang/String;[F)[F
++ */
++JNIEXPORT jfloatArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontOutline
++  (JNIEnv *, jclass, jlong, jfloat, jstring, jfloatArray);
 +
 +/*
 + * Class:     gnu_java_awt_peer_haiku_HaikuNative
@@ -11081,10 +12030,10 @@ index 0000000..dad4dac
 +AM_CXXFLAGS = -Wall -Wno-unused-parameter
 diff --git a/native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp b/native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp
 new file mode 100644
-index 0000000..312257a
+index 0000000..a3d2aea
 --- /dev/null
 +++ b/native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp
-@@ -0,0 +1,3082 @@
+@@ -0,0 +1,3384 @@
 +/* gnu_java_awt_peer_haiku_HaikuNative.cpp -- native side of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -11160,6 +12109,7 @@ index 0000000..312257a
 +#include <PrintJob.h>
 +#include <Roster.h>
 +#include <Screen.h>
++#include <Shape.h>
 +#include <SoundPlayer.h>
 +#include <TranslationUtils.h>
 +#include <TranslatorFormats.h>
@@ -14102,67 +15052,368 @@ index 0000000..312257a
 +} /* extern "C" */
 +
 +/* ------------------------------------------------------------------ */
-+/* Text that the Java fonts cannot show (for example Chinese and
-+   Japanese: Haiku's CJK fonts are CFF2 fonts, which GNU Classpath cannot
-+   read).  The app_server draws it, with its own font fallback. */
++/* Java text with Haiku's fonts.
++ *
++ * Java fonts are BFonts.  Java measures text with BFont escapements and
++ * the app_server draws it (with Haiku's hinting, anti-aliasing and font
++ * fallback) into an off-screen bitmap; Java blends the coverage.  Glyph
++ * outlines (BFont::GetGlyphShapes) serve shapes, transformed text and
++ * printing at other scales.
++ */
++
++static BFont *
++fontOf(jlong h)
++{
++  return (BFont *) (intptr_t) h;
++}
++
++/* A string as UTF-8, and for each UTF-16 unit the index of its code
++   point (-1 for the second half of a surrogate pair). */
++struct Utf8Text
++{
++  std::string utf8;
++  std::vector<int32> unitToPoint;
++  int32 points;
++};
++
++static void
++utf8Text(JNIEnv *env, jstring js, Utf8Text *out)
++{
++  out->utf8 = utf8FromString(env, js);
++  jsize n = js != NULL ? env->GetStringLength(js) : 0;
++  out->unitToPoint.resize(n);
++  const jchar *c = n > 0 ? env->GetStringChars(js, NULL) : NULL;
++  int32 point = 0;
++  for (jsize i = 0; i < n; i++)
++    {
++      out->unitToPoint[i] = point;
++      if (c[i] >= 0xD800 && c[i] < 0xDC00 && i + 1 < n
++          && c[i + 1] >= 0xDC00 && c[i + 1] < 0xE000)
++        {
++          out->unitToPoint[++i] = -1;
++        }
++      point++;
++    }
++  if (c != NULL)
++    env->ReleaseStringChars(js, c);
++  out->points = point;
++}
++
++/* One off-screen bitmap for drawing text, grown when needed. */
++static pthread_mutex_t gTextLock = PTHREAD_MUTEX_INITIALIZER;
++static BBitmap *gTextBitmap;
++static BView *gTextView;
++
++static bool
++textCanvas(int32 w, int32 h)
++{
++  if (gTextBitmap != NULL)
++    {
++      BRect b = gTextBitmap->Bounds();
++      if (b.IntegerWidth() + 1 >= w && b.IntegerHeight() + 1 >= h)
++        return true;
++      w = w > b.IntegerWidth() + 1 ? w : b.IntegerWidth() + 1;
++      h = h > b.IntegerHeight() + 1 ? h : b.IntegerHeight() + 1;
++      delete gTextBitmap;
++      gTextBitmap = NULL;
++      gTextView = NULL;
++    }
++  if (w < 256) w = 256;
++  if (h < 64) h = 64;
++  gTextBitmap = new BBitmap(BRect(0, 0, w - 1, h - 1), B_RGBA32, true);
++  if (gTextBitmap->InitCheck() != B_OK)
++    {
++      delete gTextBitmap;
++      gTextBitmap = NULL;
++      return false;
++    }
++  gTextView = new BView(gTextBitmap->Bounds(), "text", B_FOLLOW_NONE, 0);
++  gTextBitmap->AddChild(gTextView);
++  return true;
++}
++
++/* Collects a BShape as a flat float path for Java: 0 x y = move,
++   1 x y = line, 2 x1 y1 x2 y2 x3 y3 = cubic, 3 = close. */
++class PathCollector : public BShapeIterator
++{
++public:
++  PathCollector(std::vector<float> *out, float dx, float dy)
++    : fOut(out), fDx(dx), fDy(dy) {}
++
++  virtual status_t IterateMoveTo(BPoint *p)
++  {
++    Add(0, p, 1);
++    return B_OK;
++  }
++
++  virtual status_t IterateLineTo(int32 count, BPoint *p)
++  {
++    for (int32 i = 0; i < count; i++)
++      Add(1, p + i, 1);
++    return B_OK;
++  }
++
++  virtual status_t IterateBezierTo(int32 count, BPoint *p)
++  {
++    for (int32 i = 0; i < count; i++)
++      Add(2, p + i * 3, 3);
++    return B_OK;
++  }
++
++  virtual status_t IterateClose()
++  {
++    fOut->push_back(3);
++    return B_OK;
++  }
++
++private:
++  void Add(float op, BPoint *p, int n)
++  {
++    fOut->push_back(op);
++    for (int i = 0; i < n; i++)
++      {
++        fOut->push_back(p[i].x + fDx);
++        fOut->push_back(p[i].y + fDy);
++      }
++  }
++
++  std::vector<float> *fOut;
++  float fDx, fDy;
++};
 +
 +extern "C" {
 +
-+/* Draws text white on black and returns its coverage (0..255) per pixel;
-+   dims = width, height, ascent. */
-+JNIEXPORT jintArray JNICALL
-+Java_gnu_java_awt_peer_haiku_HaikuNative_textRender(JNIEnv *env, jclass,
++/* Opens a font: family ("" = the plain font) and face flags
++   (B_BOLD_FACE, B_ITALIC_FACE...).  Returns 0 if the family is unknown. */
++JNIEXPORT jlong JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontOpen(JNIEnv *env, jclass,
++                                                  jstring family, jint face)
++{
++  std::string f = utf8FromString(env, family);
++  BFont *font = new BFont(be_plain_font);
++  if (!f.empty())
++    {
++      font_family fam;
++      strlcpy(fam, f.c_str(), sizeof(fam));
++      if (font->SetFamilyAndFace(fam, (uint16) face) != B_OK)
++        {
++          delete font;
++          return 0;
++        }
++    }
++  else if (face != B_REGULAR_FACE)
++    font->SetFace((uint16) face);
++  return (jlong) (intptr_t) font;
++}
++
++/* The installed font families; which = 0: all, 1: the plain font's,
++   2: the fixed font's. */
++JNIEXPORT jobjectArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontFamilies(JNIEnv *env, jclass,
++                                                      jint which)
++{
++  std::vector<std::string> names;
++  font_family fam;
++  font_style sty;
++  if (which == 1 || which == 2)
++    {
++      (which == 1 ? be_plain_font : be_fixed_font)->GetFamilyAndStyle(&fam,
++                                                                       &sty);
++      names.push_back(fam);
++    }
++  else
++    {
++      int32 n = count_font_families();
++      for (int32 i = 0; i < n; i++)
++        {
++          uint32 flags;
++          if (get_font_family(i, &fam, &flags) == B_OK)
++            names.push_back(fam);
++        }
++    }
++  jobjectArray arr = env->NewObjectArray(names.size(),
++                                         env->FindClass("java/lang/String"),
++                                         NULL);
++  for (size_t i = 0; i < names.size(); i++)
++    {
++      jstring js = newStringFromUTF8(env, names[i].data(), names[i].size());
++      env->SetObjectArrayElement(arr, i, js);
++      env->DeleteLocalRef(js);
++    }
++  return arr;
++}
++
++/* out = ascent, descent, leading, max advance (pixels at this size). */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontMetrics(JNIEnv *env, jclass,
++                                                     jlong h, jfloat size,
++                                                     jfloatArray out)
++{
++  BFont font(*fontOf(h));
++  font.SetSize(size);
++  font_height fh;
++  font.GetHeight(&fh);
++  BRect box = font.BoundingBox();
++  jfloat v[4] = { fh.ascent, fh.descent, fh.leading,
++                  box.Width() * size };
++  env->SetFloatArrayRegion(out, 0, 4, v);
++}
++
++/* The advance of each UTF-16 unit of text (0 for the second half of a
++   surrogate pair). */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontAdvances(JNIEnv *env, jclass,
++                                                      jlong h, jfloat size,
++                                                      jstring text,
++                                                      jfloatArray out)
++{
++  Utf8Text t;
++  utf8Text(env, text, &t);
++  size_t n = t.unitToPoint.size();
++  if (n == 0)
++    return;
++  BFont font(*fontOf(h));
++  font.SetSize(size);
++  std::vector<float> esc(t.points + 1);
++  font.GetEscapements(t.utf8.c_str(), t.points, &esc[0]);
++  std::vector<jfloat> adv(n);
++  for (size_t i = 0; i < n; i++)
++    adv[i] = t.unitToPoint[i] < 0 ? 0 : esc[t.unitToPoint[i]] * size;
++  env->SetFloatArrayRegion(out, 0, n, &adv[0]);
++}
++
++JNIEXPORT jfloat JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontWidth(JNIEnv *env, jclass,
++                                                   jlong h, jfloat size,
++                                                   jstring text)
++{
++  std::string t = utf8FromString(env, text);
++  BFont font(*fontOf(h));
++  font.SetSize(size);
++  return font.StringWidth(t.c_str());
++}
++
++/* True for each UTF-16 unit that the font (or Haiku's fallback fonts)
++   can show. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontHasGlyphs(JNIEnv *env, jclass,
++                                                       jlong h, jstring text,
++                                                       jbooleanArray out)
++{
++  Utf8Text t;
++  utf8Text(env, text, &t);
++  size_t n = t.unitToPoint.size();
++  if (n == 0)
++    return;
++  bool *has = new bool[t.points + 1];
++  fontOf(h)->GetHasGlyphs(t.utf8.c_str(), t.points, has, true);
++  std::vector<jboolean> r(n);
++  for (size_t i = 0; i < n; i++)
++    r[i] = t.unitToPoint[i] < 0 ? JNI_TRUE : has[t.unitToPoint[i]];
++  delete[] has;
++  env->SetBooleanArrayRegion(out, 0, n, &r[0]);
++}
++
++/* Draws text with the app_server and returns its coverage (0..255);
++   dims = width, height, baseline y, origin x in the mask. */
++JNIEXPORT jbyteArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontRender(JNIEnv *env, jclass,
++                                                    jlong h, jfloat size,
 +                                                    jstring text,
-+                                                    jfloat size,
-+                                                    jboolean bold,
-+                                                    jboolean italic,
 +                                                    jintArray dims)
 +{
 +  std::string t = utf8FromString(env, text);
 +  if (t.empty() || size <= 0)
 +    return NULL;
-+  BFont font(be_plain_font);
++  BFont font(*fontOf(h));
 +  font.SetSize(size);
-+  uint16 face = 0;
-+  if (bold)
-+    face |= B_BOLD_FACE;
-+  if (italic)
-+    face |= B_ITALIC_FACE;
-+  if (face != 0)
-+    font.SetFace(face);
 +  font_height fh;
 +  font.GetHeight(&fh);
-+  int32 ascent = (int32) ceilf(fh.ascent);
-+  int32 w = (int32) ceilf(font.StringWidth(t.c_str())) + 1;
-+  int32 h = ascent + (int32) ceilf(fh.descent) + 1;
-+  BBitmap bmp(BRect(0, 0, w - 1, h - 1), B_RGBA32, true);
-+  if (bmp.InitCheck() != B_OK)
-+    return NULL;
-+  BView *view = new BView(bmp.Bounds(), "text", B_FOLLOW_NONE, 0);
-+  bmp.AddChild(view);
-+  if (!bmp.Lock())
-+    return NULL;
-+  view->SetHighColor(0, 0, 0);
-+  view->FillRect(view->Bounds());
-+  view->SetHighColor(255, 255, 255);
-+  view->SetLowColor(0, 0, 0);
-+  view->SetFont(&font);
-+  view->SetDrawingMode(B_OP_OVER);
-+  view->DrawString(t.c_str(), BPoint(0, ascent));
-+  view->Sync();
-+  jintArray result = env->NewIntArray(w * h);
-+  std::vector<jint> row(w);
-+  const uint8 *bits = (const uint8 *) bmp.Bits();
-+  for (int32 y = 0; y < h; y++)
++  int32 pad = (int32) ceilf(size / 4) + 1; /* italic and overhang room */
++  int32 ascent = (int32) ceilf(fh.ascent) + 1;
++  int32 w = (int32) ceilf(font.StringWidth(t.c_str())) + 2 * pad;
++  int32 hh = ascent + (int32) ceilf(fh.descent) + 2;
++  jbyteArray result = NULL;
++  pthread_mutex_lock(&gTextLock);
++  if (textCanvas(w, hh) && gTextBitmap->Lock())
 +    {
-+      const uint8 *p = bits + y * bmp.BytesPerRow();
-+      for (int32 x = 0; x < w; x++)
-+        row[x] = p[x * 4 + 1]; /* green channel */
-+      env->SetIntArrayRegion(result, y * w, w, &row[0]);
++      BRect area(0, 0, w - 1, hh - 1);
++      gTextView->SetHighColor(0, 0, 0);
++      gTextView->FillRect(area);
++      gTextView->SetHighColor(255, 255, 255);
++      gTextView->SetLowColor(0, 0, 0);
++      gTextView->SetFont(&font);
++      gTextView->SetDrawingMode(B_OP_OVER);
++      gTextView->DrawString(t.c_str(), BPoint(pad, ascent));
++      gTextView->Sync();
++      result = env->NewByteArray(w * hh);
++      std::vector<jbyte> row(w);
++      const uint8 *bits = (const uint8 *) gTextBitmap->Bits();
++      int32 bpr = gTextBitmap->BytesPerRow();
++      for (int32 y = 0; y < hh; y++)
++        {
++          const uint8 *p = bits + y * bpr;
++          for (int32 x = 0; x < w; x++)
++            /* Average of the channels, also right for subpixel AA. */
++            row[x] = (jbyte) ((p[x * 4] + p[x * 4 + 1] + p[x * 4 + 2]) / 3);
++          env->SetByteArrayRegion(result, y * w, w, &row[0]);
++        }
++      gTextBitmap->Unlock();
++      jint d[4] = { w, hh, ascent, pad };
++      env->SetIntArrayRegion(dims, 0, 4, d);
 +    }
-+  bmp.Unlock();
-+  jint d[3] = { w, h, ascent };
-+  env->SetIntArrayRegion(dims, 0, 3, d);
++  pthread_mutex_unlock(&gTextLock);
++  return result;
++}
++
++/* The outline of text as a flat path (see PathCollector); xs are the x
++   positions of the UTF-16 units (null: laid out with the advances). */
++JNIEXPORT jfloatArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_fontOutline(JNIEnv *env, jclass,
++                                                     jlong h, jfloat size,
++                                                     jstring text,
++                                                     jfloatArray xs)
++{
++  Utf8Text t;
++  utf8Text(env, text, &t);
++  if (t.points == 0)
++    return env->NewFloatArray(0);
++  BFont font(*fontOf(h));
++  font.SetSize(size);
++  std::vector<float> esc(t.points + 1);
++  font.GetEscapements(t.utf8.c_str(), t.points, &esc[0]);
++  std::vector<float> pointX(t.points);
++  float x = 0;
++  for (int32 i = 0; i < t.points; i++)
++    {
++      pointX[i] = x;
++      x += esc[i] * size;
++    }
++  if (xs != NULL)
++    {
++      jsize n = env->GetArrayLength(xs);
++      jfloat *v = env->GetFloatArrayElements(xs, NULL);
++      for (jsize i = 0; v != NULL && i < n && i < (jsize) t.unitToPoint.size();
++           i++)
++        if (t.unitToPoint[i] >= 0)
++          pointX[t.unitToPoint[i]] = v[i];
++      if (v != NULL)
++        env->ReleaseFloatArrayElements(xs, v, JNI_ABORT);
++    }
++  std::vector<BShape *> shapes(t.points);
++  for (int32 i = 0; i < t.points; i++)
++    shapes[i] = new BShape();
++  font.GetGlyphShapes(t.utf8.c_str(), t.points, &shapes[0]);
++  std::vector<float> path;
++  for (int32 i = 0; i < t.points; i++)
++    {
++      PathCollector c(&path, pointX[i], 0);
++      c.Iterate(shapes[i]);
++      delete shapes[i];
++    }
++  jfloatArray result = env->NewFloatArray(path.size());
++  if (!path.empty())
++    env->SetFloatArrayRegion(result, 0, path.size(), &path[0]);
 +  return result;
 +}
 +

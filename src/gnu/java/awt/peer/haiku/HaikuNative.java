@@ -325,12 +325,38 @@ final class HaikuNative
   static native void imLocationReply(long window, int[] xs, int[] ys,
                                      float height);
 
+  // Fonts (BFont). Sizes are pixels (points at 72 dpi).
+
+  /** Opens a font ("" = the plain font); 0 if the family is unknown. */
+  static native long fontOpen(String family, int face);
+
+  /** which: 0 all families, 1 the plain font's, 2 the fixed font's. */
+  static native String[] fontFamilies(int which);
+
+  /** out = ascent, descent, leading, max advance. */
+  static native void fontMetrics(long font, float size, float[] out);
+
+  /** The advance of each UTF-16 unit of text. */
+  static native void fontAdvances(long font, float size, String text,
+                                  float[] out);
+
+  static native float fontWidth(long font, float size, String text);
+
+  static native void fontHasGlyphs(long font, String text, boolean[] out);
+
   /**
-   * Draws text with Haiku's fonts. Returns its coverage (0..255) per
-   * pixel; dims = width, height, ascent.
+   * Draws text; returns coverage (0..255) per pixel. dims = width,
+   * height, baseline y, origin x.
    */
-  static native int[] textRender(String text, float size, boolean bold,
-                                 boolean italic, int[] dims);
+  static native byte[] fontRender(long font, float size, String text,
+                                  int[] dims);
+
+  /**
+   * The outline of text: 0 x y = move, 1 x y = line,
+   * 2 x1 y1 x2 y2 x3 y3 = cubic, 3 = close. xs: x of each unit, or null.
+   */
+  static native float[] fontOutline(long font, float size, String text,
+                                    float[] xs);
 
   /** Shows composing text near (x, y) on the screen; null hides it. */
   static native void imShowComposition(String text, int x, int y,

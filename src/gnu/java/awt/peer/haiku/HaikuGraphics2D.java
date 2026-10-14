@@ -700,91 +700,98 @@ public class HaikuGraphics2D
     markDirty(dst.x, dst.y, dst.width, dst.height);
   }
 
-  // Text with characters that the font cannot show.
+  // Text: Haiku fonts are drawn by the app_server.
 
-  public void drawString(String text, int x, int y)
+  /** A rendered string: coverage, size, baseline and origin. */
+  private static final class TextMask
   {
-    if (! drawWithFallback(text, x, y))
-      super.drawString(text, x, y);
+    final byte[] cover;
+    final int w, h, baseline, originX;
+
+    TextMask(byte[] cover, int[] dims)
+    {
+      this.cover = cover;
+      w = dims[0];
+      h = dims[1];
+      baseline = dims[2];
+      originX = dims[3];
+    }
   }
 
-  public void drawString(String text, float x, float y)
+  /** Recently drawn strings; Swing draws the same labels again and again. */
+  private static final java.util.LinkedHashMap<String,TextMask> textCache =
+    new java.util.LinkedHashMap<String,TextMask>(256, 0.75f, true)
+    {
+      protected boolean removeEldestEntry(java.util.Map.Entry<String,TextMask> e)
+      {
+        return size() > 500;
+      }
+    };
+
+  private static TextMask renderText(HaikuFontPeer peer, float size,
+                                     String text)
   {
-    if (! drawWithFallback(text, x, y))
-      super.drawString(text, x, y);
+    String key = peer.handle + "/" + size + "/" + text;
+    synchronized (textCache)
+      {
+        TextMask m = textCache.get(key);
+        if (m != null)
+          return m;
+      }
+    int[] dims = new int[4];
+    byte[] cover = HaikuNative.fontRender(peer.handle, size, text, dims);
+    if (cover == null)
+      return null;
+    TextMask m = new TextMask(cover, dims);
+    synchronized (textCache)
+      {
+        textCache.put(key, m);
+      }
+    return m;
   }
 
   /**
-   * Draws text whose font lacks some glyphs: the runs the font has are
-   * drawn as usual, the others with Haiku's fonts (HaikuNative.textRender)
-   * in the current colour.
-   *
-   * @return false if the font has all glyphs, or the fallback cannot be
-   *         used (no direct pixels, rotated text, a paint that is not a
-   *         colour); the caller then draws normally
+   * Draws glyph vectors of Haiku fonts with the app_server, at the scale
+   * of the transform. Rotated or sheared text, transformed fonts, paints
+   * that are not colours and moved glyphs are filled as outlines.
    */
-  private boolean drawWithFallback(String text, float x, float y)
+  public void drawGlyphVector(java.awt.font.GlyphVector gv, float x, float y)
   {
-    if (text == null || text.length() == 0 || pixels == null
-        || ! (getPaint() instanceof Color))
-      return false;
-    java.awt.Font f = getFont();
-    java.awt.font.FontRenderContext frc = getFontRenderContext();
-    java.awt.font.GlyphVector gv = f.createGlyphVector(frc, text);
-    int n = text.length();
-    if (gv.getNumGlyphs() != n)
-      return false;
-    boolean[] has = new boolean[n];
-    boolean missing = false;
-    for (int i = 0; i < n; i++)
+    if (gv instanceof HaikuGlyphVector && pixels != null
+        && getPaint() instanceof Color)
       {
-        has[i] = gv.getGlyphCode(i) != 0 || text.charAt(i) < ' ';
-        missing |= ! has[i];
-      }
-    if (! missing)
-      return false;
-    java.awt.geom.AffineTransform t = getTransform();
-    if ((t.getType() & (java.awt.geom.AffineTransform.TYPE_GENERAL_ROTATION
-                        | java.awt.geom.AffineTransform.TYPE_QUADRANT_ROTATION
-                        | java.awt.geom.AffineTransform.TYPE_FLIP
-                        | java.awt.geom.AffineTransform.TYPE_GENERAL_TRANSFORM))
-        != 0)
-      return false;
-    double sx = t.getScaleX();
-    double sy = t.getScaleY();
-    float cx = x;
-    int i = 0;
-    while (i < n)
-      {
-        int j = i + 1;
-        while (j < n && has[j] == has[i])
-          j++;
-        String run = text.substring(i, j);
-        if (has[i])
+        HaikuGlyphVector hgv = (HaikuGlyphVector) gv;
+        java.awt.geom.AffineTransform t = getTransform();
+        java.awt.geom.AffineTransform ft = hgv.font.getTransform();
+        double sx = t.getScaleX();
+        double sy = t.getScaleY();
+        if (! hgv.customLayout && t.getShearX() == 0 && t.getShearY() == 0
+            && sx > 0 && Math.abs(sx - sy) < 1e-6
+            && (ft == null || ft.isIdentity()))
           {
-            super.drawString(run, cx, y);
-            cx += (float) f.getStringBounds(run, frc).getWidth();
-          }
-        else
-          {
-            int[] dims = new int[3];
-            int[] cover = HaikuNative.textRender(run, (float) (f.getSize2D() * sy),
-                                                 f.isBold(), f.isItalic(), dims);
-            if (cover != null)
+            if (hgv.text.length() == 0)
+              return;
+            TextMask m = renderText(hgv.peer,
+                                    (float) (hgv.font.getSize2D() * sy),
+                                    hgv.text);
+            if (m != null)
               {
-                int dx = (int) Math.round(t.getTranslateX() + sx * cx);
-                int dy = (int) Math.round(t.getTranslateY() + sy * y) - dims[2];
-                blendCoverage(cover, dims[0], dims[1], dx, dy);
-                cx += dims[0] / sx;
+                int dx = (int) Math.round(t.getTranslateX() + sx * x)
+                         - m.originX;
+                int dy = (int) Math.round(t.getTranslateY() + sy * y)
+                         - m.baseline;
+                blendCoverage(m.cover, m.w, m.h, dx, dy);
+                return;
               }
           }
-        i = j;
       }
-    return true;
+    // AbstractGraphics2D translates before filling, which also moves
+    // gradient and texture paints; fill the outline in place instead.
+    fillShape(gv.getOutline(x, y), true);
   }
 
   /** Blends the current colour through a coverage mask at (dx, dy). */
-  private void blendCoverage(int[] cover, int w, int h, int dx, int dy)
+  private void blendCoverage(byte[] cover, int w, int h, int dx, int dy)
   {
     Color c = (Color) getPaint();
     int rgb = c.getRGB();
@@ -801,7 +808,7 @@ public class HaikuGraphics2D
     for (int yy = area.y; yy < area.y + area.height; yy++)
       for (int xx = area.x; xx < area.x + area.width; xx++)
         {
-          int a = cover[(yy - dy) * w + (xx - dx)] * ca / 255;
+          int a = (cover[(yy - dy) * w + (xx - dx)] & 0xff) * ca / 255;
           if (a == 0)
             continue;
           int k = yy * scan + xx;

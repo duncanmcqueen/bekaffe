@@ -621,11 +621,67 @@ JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imLocationReply
 
 /*
  * Class:     gnu_java_awt_peer_haiku_HaikuNative
- * Method:    textRender
- * Signature: (Ljava/lang/String;FZZ[I)[I
+ * Method:    fontOpen
+ * Signature: (Ljava/lang/String;I)J
  */
-JNIEXPORT jintArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_textRender
-  (JNIEnv *, jclass, jstring, jfloat, jboolean, jboolean, jintArray);
+JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontOpen
+  (JNIEnv *, jclass, jstring, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontFamilies
+ * Signature: (I)[Ljava/lang/String;
+ */
+JNIEXPORT jobjectArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontFamilies
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontMetrics
+ * Signature: (JF[F)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontMetrics
+  (JNIEnv *, jclass, jlong, jfloat, jfloatArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontAdvances
+ * Signature: (JFLjava/lang/String;[F)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontAdvances
+  (JNIEnv *, jclass, jlong, jfloat, jstring, jfloatArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontWidth
+ * Signature: (JFLjava/lang/String;)F
+ */
+JNIEXPORT jfloat JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontWidth
+  (JNIEnv *, jclass, jlong, jfloat, jstring);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontHasGlyphs
+ * Signature: (JLjava/lang/String;[Z)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontHasGlyphs
+  (JNIEnv *, jclass, jlong, jstring, jbooleanArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontRender
+ * Signature: (JFLjava/lang/String;[I)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontRender
+  (JNIEnv *, jclass, jlong, jfloat, jstring, jintArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    fontOutline
+ * Signature: (JFLjava/lang/String;[F)[F
+ */
+JNIEXPORT jfloatArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_fontOutline
+  (JNIEnv *, jclass, jlong, jfloat, jstring, jfloatArray);
 
 /*
  * Class:     gnu_java_awt_peer_haiku_HaikuNative

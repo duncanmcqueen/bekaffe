@@ -40,6 +40,11 @@ the 1999 screenshots show.
   need it.
 - Drawing is done in Java (`HaikuGraphics2D`) into a back buffer that is copied to a
   `BBitmap`. XOR mode is supported.
+- Text uses Haiku's fonts (`HaikuFontPeer`): Haiku measures it (BFont advances) and the
+  app_server draws it, so it is hinted, anti-aliased and spaced like the rest of Haiku, and
+  Haiku's font fallback covers scripts such as Chinese and Japanese. Dialog and SansSerif
+  map to the plain font, Monospaced to the fixed font, Serif to a serif family. Rotated
+  text and text with gradient paints use the glyph outlines.
 - The system clipboard: text, pictures (as an archived bitmap, like ShowImage, and as PNG),
   files and other MIME data go to and from other Haiku applications (`be_clipboard`). The
   Command-X/C/V/A shortcuts work in text components.
@@ -51,8 +56,7 @@ the 1999 screenshots show.
   settings when there is no dialog.
 - Input methods: composed text goes inline to components with `InputMethodRequests`;
   other components get the confirmed text, and the composed text shows in a small window
-  below the caret. Characters that the Java fonts lack (Chinese, Japanese) are drawn with
-  Haiku's fonts.
+  below the caret.
 - Modal dialogs block input to the other windows of the application, and always-on-top
   windows float above all windows.
 - Mouse cursors: all predefined `Cursor` types map to Haiku system cursors, and
@@ -69,9 +73,8 @@ the 1999 screenshots show.
 - GNU Classpath build integration: a patch adds the peer to Classpath 0.98, with
   `configure --enable-haiku-peer` (on by default on Haiku).
 
-Not done yet: text is drawn by GNU Classpath's Java font engine, without anti-aliasing
-and with uneven spacing; Haiku's font engine would look much better. Rendering is pure
-Java and slow on Kaffe's interpreter. Drag and drop to other applications cannot tell the
+Not done yet: shapes and images are still rendered in Java, which is slow on Kaffe's
+interpreter. Drag and drop to other applications cannot tell the
 Java drag source whether the drop was accepted (it reports a copy).
 
 ## Contents
@@ -84,7 +87,7 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/resource/gnu/java/awt/font/fonts.properties` | Maps the Java logical fonts to the DejaVu fonts on Haiku. |
 | `src/applet/bekaffe/applet/` | Kaffe 1.0's AppletViewer, changed to work with Classpath (see below). |
 | `src/demos/` | Demo applets for the screenshots. |
-| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. |
+| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. |
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
