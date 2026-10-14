@@ -155,6 +155,10 @@ public class HaikuToolkit
   {
     SystemProperties.setProperty("java.awt.graphicsenv",
                                  "gnu.java.awt.peer.haiku.HaikuGraphicsEnvironment");
+    // PrinterJob.getPrinterJob() uses this class, as in the JDK.
+    if (SystemProperties.getProperty("java.awt.printerjob") == null)
+      SystemProperties.setProperty("java.awt.printerjob",
+                                   "gnu.java.awt.peer.haiku.HaikuPrinterJob");
     HaikuNative.ensureInitialized();
   }
 
@@ -512,9 +516,13 @@ public class HaikuToolkit
 
   // Misc.
 
+  /** Shows Haiku's page setup and print dialogs; null if cancelled. */
   public PrintJob getPrintJob(Frame frame, String title, Properties props)
   {
-    return null;
+    SecurityManager sm = System.getSecurityManager();
+    if (sm != null)
+      sm.checkPrintJobAccess();
+    return HaikuPrintJob.create(title);
   }
 
   public void beep()
@@ -568,12 +576,45 @@ public class HaikuToolkit
 
   public DragSourceContextPeer createDragSourceContextPeer(DragGestureEvent e)
   {
-    throw new UnsupportedOperationException("Not yet implemented.");
+    return HaikuDragDrop.createDragSourceContextPeer();
   }
 
+  /** Mouse drags start drag gestures (GNU Classpath's generic recognizer). */
+  public <T extends java.awt.dnd.DragGestureRecognizer> T
+    createDragGestureRecognizer(Class<T> recognizer,
+                                java.awt.dnd.DragSource ds,
+                                java.awt.Component comp, int actions,
+                                java.awt.dnd.DragGestureListener l)
+  {
+    if (! recognizer.isAssignableFrom(
+            gnu.java.awt.dnd.GtkMouseDragGestureRecognizer.class))
+      return null;
+    gnu.java.awt.dnd.GtkMouseDragGestureRecognizer r =
+      new gnu.java.awt.dnd.GtkMouseDragGestureRecognizer(ds, comp, actions, l);
+    // GNU Classpath's DragGestureRecognizer constructor does not do this.
+    if (comp != null)
+      r.registerListeners();
+    return recognizer.cast(r);
+  }
+
+  /**
+   * Composed text: dotted underline for raw text, inverse colours for the
+   * part being converted, a solid underline for converted text.
+   */
   public Map mapInputMethodHighlight(InputMethodHighlight highlight)
   {
-    return null;
+    java.util.HashMap<java.awt.font.TextAttribute,Object> m =
+      new java.util.HashMap<java.awt.font.TextAttribute,Object>();
+    if (highlight.isSelected())
+      m.put(java.awt.font.TextAttribute.SWAP_COLORS,
+            java.awt.font.TextAttribute.SWAP_COLORS_ON);
+    else if (highlight.getState() == InputMethodHighlight.RAW_TEXT)
+      m.put(java.awt.font.TextAttribute.INPUT_METHOD_UNDERLINE,
+            java.awt.font.TextAttribute.UNDERLINE_LOW_DOTTED);
+    else
+      m.put(java.awt.font.TextAttribute.INPUT_METHOD_UNDERLINE,
+            java.awt.font.TextAttribute.UNDERLINE_LOW_ONE_PIXEL);
+    return m;
   }
 
   public boolean isModalExclusionTypeSupported(ModalExclusionType type)
@@ -581,8 +622,10 @@ public class HaikuToolkit
     return false;
   }
 
+  /** Modal dialogs block the whole application. */
   public boolean isModalityTypeSupported(ModalityType type)
   {
-    return false;
+    return type == ModalityType.MODELESS
+           || type == ModalityType.APPLICATION_MODAL;
   }
 }

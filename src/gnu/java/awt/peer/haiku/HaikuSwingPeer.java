@@ -51,6 +51,7 @@ import javax.swing.JComponent;
  */
 class HaikuSwingPeer
   extends SwingComponentPeer
+  implements java.awt.dnd.peer.DropTargetPeer
 {
 
   HaikuSwingWrapper wrapper;
@@ -111,5 +112,15 @@ class HaikuSwingPeer
   {
     super.setCursor(cursor);
     HaikuEventPump.get().refreshCursor();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 }

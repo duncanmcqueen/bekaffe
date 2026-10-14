@@ -3,6 +3,54 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-14): modal, always-on-top, drag and drop, printing, input methods, rich clipboard
+
+- **Modal dialogs:** a shown modal dialog gets `B_MODAL_APP_WINDOW_FEEL`, and the event pump
+  drops input (mouse, keys, close, drop, IM) to windows it blocks (all but the dialog and the
+  windows it owns); a click on a blocked window brings the dialog forward. Classpath's
+  `Dialog.show()` only blocks the caller and never calls `setModalBlocked`.
+  **Always on top:** `B_FLOATING_ALL_WINDOW_FEEL` (`updateAlwaysOnTop`).
+- **Data transfer:** one native message API (`msgNew/msgAdd*`, sources `SRC_CLIPBOARD`,
+  `SRC_DRAG`, `SRC_DROP` with generation numbers) for clipboard and DnD.
+  `HaikuTransferable` reads a message (text/plain -> String, "refs" -> file list,
+  image/bitmap archive or translator-readable image/* -> Image, other MIME -> InputStream)
+  and writes one (`toMessage`: text, files, picture as archived BBitmap + PNG via the
+  Translation Kit, other byte/text MIME types). The clipboard now carries pictures and MIME
+  data both ways (tested with `tools/msgtest.cpp clip-image/clip-dump`).
+- **Drag and drop:** all drags go through `BView::DragMessage`. The view posts `EV_DRAG`
+  (enter/over/exit, message copied on enter) and `EV_DROP` (`WasDropped`). Java finds the
+  deepest active `DropTarget` and calls it on the EDT with a `DropTargetContextPeer`. Java
+  drags carry `be:jdnd` + `be:jdnd_vm`, so a drop in the same VM gets the original
+  Transferable and the source gets `dragDropEnd`; drops elsewhere report a copy after mouse
+  up (600 ms). Peers implement `DropTargetPeer` (Classpath's `DropTarget.removeNotify` NPEs
+  otherwise). Tested Java->Java, Tracker->Java (file list), Java->StyledEdit (text).
+  Classpath bugs: `DragGestureRecognizer` never registers listeners (toolkit calls
+  `registerListeners()`), `DragSource` reused its first context, `DropTargetDragEvent`/
+  `DropTargetDropEvent` reject every valid source action (`~(a ^ mask) != 0`; overlay
+  workaround: make with `~mask`, set the field by reflection), `getCurrentDataFlavors()`
+  returned null, `DropTargetContext` target actions were always 0.
+- **Printing:** `BPrintJob`; pages are Java pictures (up to 150 dpi) drawn by a hidden
+  `PrintView`. `HaikuPrintJob` (AWT 1.1, dialogs always) and `HaikuPrinterJob` (Java 2;
+  `PrinterJob.getPrinterJob()` uses `java.awt.printerjob`, which HaikuToolkit sets).
+  Without a dialog, `BeginJob` needs settings: ask the print server ('pdef') and add
+  `scale`=100 (else the Preview driver draws pages at size 0). The VM had no default printer;
+  with the user's OK, Preview was made the default ('pmaq', `/tmp/pact Preview`).
+- **Input methods:** `B_INPUT_METHOD_EVENT` (also when sent to the window) -> `EV_IM`.
+  Components with `InputMethodRequests` get `InputMethodEvent`s; others get KEY_TYPED for
+  confirmed text and a composition window (`imShowComposition`) below the caret; location
+  requests are answered. Tested with `msgtest im` (no IM is installed on the VM).
+  Haiku's CJK fonts are CFF2 (Classpath can't read them), so `HaikuGraphics2D.drawString`
+  draws runs with missing glyphs (glyph code 0) with Haiku's font engine (`textRender`) and
+  blends them. FontMetrics still use the Java font (CJK widths are wrong for layout).
+- **TextField focus:** Classpath's Swing text UI threw ClassCastException on focus loss
+  (AWT source); `HaikuTextFieldPeer.handleFocusEvent` retargets to the JTextField.
+- **Fonts look ragged** (user noticed): Classpath's Java rasterizer, no anti-aliasing,
+  per-glyph rounding, weak hinting. Proposed fix: a Haiku font peer (BFont metrics +
+  app_server rendering, building on `textRender`).
+- **Shared VM:** a user/agent works in the VM GUI. Use `tools/msgtest.cpp` (scripting
+  messages to the Java window) instead of the real mouse; the user allowed the mouse once
+  for the DnD/print dialog tests.
+
 ## UPDATE (2026-10-13, evening): clipboard, cursors, sound, filters, frame state, Classpath build
 
 - **Clipboard:** `HaikuClipboard` (Toolkit.getSystemClipboard) writes text to `be_clipboard`

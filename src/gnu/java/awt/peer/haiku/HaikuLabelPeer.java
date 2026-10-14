@@ -51,6 +51,7 @@ import java.awt.Label;
  */
 public class HaikuLabelPeer
   extends SwingLabelPeer
+  implements java.awt.dnd.peer.DropTargetPeer
 {
 
   HaikuLabelPeer(Label label)
@@ -94,5 +95,15 @@ public class HaikuLabelPeer
   {
     super.setCursor(cursor);
     HaikuEventPump.get().refreshCursor();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 }

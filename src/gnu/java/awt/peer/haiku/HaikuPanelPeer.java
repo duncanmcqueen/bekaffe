@@ -52,6 +52,7 @@ import java.awt.Rectangle;
  */
 public class HaikuPanelPeer
   extends SwingPanelPeer
+  implements java.awt.dnd.peer.DropTargetPeer
 {
 
   HaikuPanelPeer(Panel panel)
@@ -91,5 +92,15 @@ public class HaikuPanelPeer
   {
     super.setCursor(cursor);
     HaikuEventPump.get().refreshCursor();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 }

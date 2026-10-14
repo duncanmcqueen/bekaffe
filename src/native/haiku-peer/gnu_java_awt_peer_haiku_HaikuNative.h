@@ -45,6 +45,42 @@ extern "C" {
 #define gnu_java_awt_peer_haiku_HaikuNative_EV_EDIT 18L
 #undef gnu_java_awt_peer_haiku_HaikuNative_EV_FILTER
 #define gnu_java_awt_peer_haiku_HaikuNative_EV_FILTER 19L
+#undef gnu_java_awt_peer_haiku_HaikuNative_EV_DRAG
+#define gnu_java_awt_peer_haiku_HaikuNative_EV_DRAG 20L
+#undef gnu_java_awt_peer_haiku_HaikuNative_EV_DROP
+#define gnu_java_awt_peer_haiku_HaikuNative_EV_DROP 21L
+#undef gnu_java_awt_peer_haiku_HaikuNative_EV_IM
+#define gnu_java_awt_peer_haiku_HaikuNative_EV_IM 22L
+#undef gnu_java_awt_peer_haiku_HaikuNative_DRAG_ENTER
+#define gnu_java_awt_peer_haiku_HaikuNative_DRAG_ENTER 1L
+#undef gnu_java_awt_peer_haiku_HaikuNative_DRAG_OVER
+#define gnu_java_awt_peer_haiku_HaikuNative_DRAG_OVER 2L
+#undef gnu_java_awt_peer_haiku_HaikuNative_DRAG_EXIT
+#define gnu_java_awt_peer_haiku_HaikuNative_DRAG_EXIT 3L
+#undef gnu_java_awt_peer_haiku_HaikuNative_SRC_CLIPBOARD
+#define gnu_java_awt_peer_haiku_HaikuNative_SRC_CLIPBOARD 0L
+#undef gnu_java_awt_peer_haiku_HaikuNative_SRC_DRAG
+#define gnu_java_awt_peer_haiku_HaikuNative_SRC_DRAG 1L
+#undef gnu_java_awt_peer_haiku_HaikuNative_SRC_DROP
+#define gnu_java_awt_peer_haiku_HaikuNative_SRC_DROP 2L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_SIMPLE_DATA
+#define gnu_java_awt_peer_haiku_HaikuNative_B_SIMPLE_DATA 1145132097L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_MIME_DATA
+#define gnu_java_awt_peer_haiku_HaikuNative_B_MIME_DATA 1296649541L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STARTED
+#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STARTED 0L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STOPPED
+#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STOPPED 1L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_CHANGED
+#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_CHANGED 2L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_LOCATION_REQUEST
+#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_LOCATION_REQUEST 3L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_NORMAL_WINDOW_FEEL
+#define gnu_java_awt_peer_haiku_HaikuNative_B_NORMAL_WINDOW_FEEL 0L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_MODAL_APP_WINDOW_FEEL
+#define gnu_java_awt_peer_haiku_HaikuNative_B_MODAL_APP_WINDOW_FEEL 1L
+#undef gnu_java_awt_peer_haiku_HaikuNative_B_FLOATING_ALL_WINDOW_FEEL
+#define gnu_java_awt_peer_haiku_HaikuNative_B_FLOATING_ALL_WINDOW_FEEL 6L
 #undef gnu_java_awt_peer_haiku_HaikuNative_EDIT_CUT
 #define gnu_java_awt_peer_haiku_HaikuNative_EDIT_CUT 1L
 #undef gnu_java_awt_peer_haiku_HaikuNative_EDIT_COPY
@@ -385,19 +421,59 @@ JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_cursorCreate
 
 /*
  * Class:     gnu_java_awt_peer_haiku_HaikuNative
- * Method:    clipboardSetText
- * Signature: (Ljava/lang/String;)J
+ * Method:    setFeel
+ * Signature: (JI)V
  */
-JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSetText
-  (JNIEnv *, jclass, jstring);
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_setFeel
+  (JNIEnv *, jclass, jlong, jint);
 
 /*
  * Class:     gnu_java_awt_peer_haiku_HaikuNative
- * Method:    clipboardGetText
- * Signature: ()Ljava/lang/String;
+ * Method:    msgNew
+ * Signature: (I)J
  */
-JNIEXPORT jstring JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardGetText
-  (JNIEnv *, jclass);
+JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgNew
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgDelete
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgDelete
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgAddData
+ * Signature: (JLjava/lang/String;[B)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddData
+  (JNIEnv *, jclass, jlong, jstring, jbyteArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgAddInt
+ * Signature: (JLjava/lang/String;I)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddInt
+  (JNIEnv *, jclass, jlong, jstring, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgAddImage
+ * Signature: (J[III)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddImage
+  (JNIEnv *, jclass, jlong, jintArray, jint, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgAddFiles
+ * Signature: (J[Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddFiles
+  (JNIEnv *, jclass, jlong, jobjectArray);
 
 /*
  * Class:     gnu_java_awt_peer_haiku_HaikuNative
@@ -406,6 +482,158 @@ JNIEXPORT jstring JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardGetT
  */
 JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardCount
   (JNIEnv *, jclass);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    clipboardPut
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardPut
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    clipboardSnapshot
+ * Signature: ()J
+ */
+JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSnapshot
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgGeneration
+ * Signature: (I)I
+ */
+JNIEXPORT jint JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgGeneration
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgTypes
+ * Signature: (I)[Ljava/lang/String;
+ */
+JNIEXPORT jobjectArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgTypes
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgData
+ * Signature: (ILjava/lang/String;)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgData
+  (JNIEnv *, jclass, jint, jstring);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgImage
+ * Signature: (I[I)[I
+ */
+JNIEXPORT jintArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgImage
+  (JNIEnv *, jclass, jint, jintArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgFiles
+ * Signature: (I)[Ljava/lang/String;
+ */
+JNIEXPORT jobjectArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgFiles
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    msgInt
+ * Signature: (ILjava/lang/String;I)I
+ */
+JNIEXPORT jint JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgInt
+  (JNIEnv *, jclass, jint, jstring, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    dragStart
+ * Signature: (JJIIII[IIIII)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_dragStart
+  (JNIEnv *, jclass, jlong, jlong, jint, jint, jint, jint, jintArray, jint, jint, jint, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    printCreate
+ * Signature: (Ljava/lang/String;ZZ)J
+ */
+JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printCreate
+  (JNIEnv *, jclass, jstring, jboolean, jboolean);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    printDialog
+ * Signature: (JZ)Z
+ */
+JNIEXPORT jboolean JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printDialog
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    printInfo
+ * Signature: (J[F)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printInfo
+  (JNIEnv *, jclass, jlong, jfloatArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    printBegin
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printBegin
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    printPage
+ * Signature: (J[III)Z
+ */
+JNIEXPORT jboolean JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printPage
+  (JNIEnv *, jclass, jlong, jintArray, jint, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    printEnd
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printEnd
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    imText
+ * Signature: (I)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imText
+  (JNIEnv *, jclass, jint);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    imLocationReply
+ * Signature: (J[I[IF)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imLocationReply
+  (JNIEnv *, jclass, jlong, jintArray, jintArray, jfloat);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    textRender
+ * Signature: (Ljava/lang/String;FZZ[I)[I
+ */
+JNIEXPORT jintArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_textRender
+  (JNIEnv *, jclass, jstring, jfloat, jboolean, jboolean, jintArray);
+
+/*
+ * Class:     gnu_java_awt_peer_haiku_HaikuNative
+ * Method:    imShowComposition
+ * Signature: (Ljava/lang/String;IIII)V
+ */
+JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imShowComposition
+  (JNIEnv *, jclass, jstring, jint, jint, jint, jint);
 
 #ifdef __cplusplus
 }

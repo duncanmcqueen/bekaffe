@@ -64,7 +64,7 @@ import javax.swing.JScrollBar;
  */
 public class HaikuScrollPanePeer
   extends SwingContainerPeer
-  implements ScrollPanePeer
+  implements ScrollPanePeer, java.awt.dnd.peer.DropTargetPeer
 {
 
   private final ScrollPane sp;
@@ -321,5 +321,15 @@ public class HaikuScrollPanePeer
   {
     super.setCursor(cursor);
     HaikuEventPump.get().refreshCursor();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 }

@@ -66,6 +66,7 @@ import javax.swing.JToggleButton;
  */
 public class HaikuCheckboxPeer
   extends SwingCheckboxPeer
+  implements java.awt.dnd.peer.DropTargetPeer
 {
 
   /**
@@ -170,5 +171,15 @@ public class HaikuCheckboxPeer
   {
     super.setCursor(cursor);
     HaikuEventPump.get().refreshCursor();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 }

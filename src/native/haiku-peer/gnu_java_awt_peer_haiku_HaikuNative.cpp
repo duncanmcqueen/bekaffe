@@ -55,10 +55,13 @@ exception statement from your version. */
 #include <Application.h>
 #include <Beep.h>
 #include <Bitmap.h>
+#include <BitmapStream.h>
 #include <Clipboard.h>
 #include <Cursor.h>
 #include <Entry.h>
+#include <DataIO.h>
 #include <FilePanel.h>
+#include <Input.h>
 #include <Menu.h>
 #include <MenuBar.h>
 #include <MenuItem.h>
@@ -67,8 +70,13 @@ exception statement from your version. */
 #include <Node.h>
 #include <Path.h>
 #include <PopUpMenu.h>
+#include <PrintJob.h>
+#include <Roster.h>
 #include <Screen.h>
 #include <SoundPlayer.h>
+#include <TranslationUtils.h>
+#include <TranslatorFormats.h>
+#include <TranslatorRoster.h>
 #include <View.h>
 #include <Window.h>
 #include <OS.h>
@@ -105,8 +113,31 @@ enum {
   EV_FILE_PANEL = 16, /* window id = dialog id, a = 1 if a file was chosen */
   EV_STATE = 17,      /* a = 1 if minimized, b = 1 if zoomed */
   EV_EDIT = 18,       /* a = EDIT_CUT, EDIT_COPY, EDIT_PASTE or EDIT_SELECT_ALL */
-  EV_FILTER = 19      /* window id = dialog id; a file panel waits for filterAnswer() */
+  EV_FILTER = 19,     /* window id = dialog id; a file panel waits for filterAnswer() */
+  EV_DRAG = 20,       /* a = x, b = y, c = DRAG_ENTER/OVER/EXIT, d = modifiers */
+  EV_DROP = 21,       /* a = x, b = y, d = modifiers; data in message source SRC_DROP */
+  EV_IM = 22          /* a = input method opcode, b = confirmed, c, d = selection */
 };
+
+/* Transits of EV_DRAG. */
+enum {
+  DRAG_ENTER = 1,
+  DRAG_OVER = 2,
+  DRAG_EXIT = 3
+};
+
+/* Message sources that Java can read: a copy of the clipboard, the
+   message of the drag over a window, and the last dropped message. */
+enum {
+  SRC_CLIPBOARD = 0,
+  SRC_DRAG = 1,
+  SRC_DROP = 2,
+  SRC_COUNT = 3
+};
+
+static void setSource(int32 src, BMessage *msg);
+static void imChanged(int32 id, const char *text, int32 len,
+                      int32 selStart, int32 selEnd, bool confirmed);
 
 /* Commands of EV_EDIT: the Command-X/C/V/A shortcuts of a BWindow. */
 enum {
@@ -419,7 +450,7 @@ class PeerView : public BView
 public:
   PeerView(BRect frame, int32 id)
     : BView(frame, "awt", B_FOLLOW_ALL_SIDES, B_WILL_DRAW | B_FRAME_EVENTS),
-      fId(id), fBitmap(NULL), fButtons(0)
+      fId(id), fBitmap(NULL), fButtons(0), fDragInside(false)
   {
     /* We repaint every pixel from the bitmap; no app_server erase. */
     SetViewColor(B_TRANSPARENT_COLOR);
@@ -492,8 +523,35 @@ public:
               released, modifiers());
   }
 
-  virtual void MouseMoved(BPoint where, uint32 transit, const BMessage *)
+  virtual void MouseMoved(BPoint where, uint32 transit, const BMessage *drag)
   {
+    if (drag != NULL)
+      {
+        /* A drag (from any application) is over this window. */
+        int32 t = DRAG_OVER;
+        if (transit == B_ENTERED_VIEW)
+          {
+            setSource(SRC_DRAG, new BMessage(*drag));
+            t = DRAG_ENTER;
+          }
+        else if (transit == B_EXITED_VIEW || transit == B_OUTSIDE_VIEW)
+          t = DRAG_EXIT;
+        if (!fDragInside && t == DRAG_OVER)
+          {
+            setSource(SRC_DRAG, new BMessage(*drag));
+            t = DRAG_ENTER;
+          }
+        fDragInside = t != DRAG_EXIT;
+        postEvent(EV_DRAG, fId, (int32) where.x, (int32) where.y, t,
+                  modifiers());
+        return;
+      }
+    if (fDragInside)
+      {
+        fDragInside = false;
+        postEvent(EV_DRAG, fId, (int32) where.x, (int32) where.y, DRAG_EXIT,
+                  modifiers());
+      }
     int32 buttons, clicks;
     currentMouseState(this, &buttons, &clicks);
     int32 type = EV_MOUSE_MOVED;
@@ -520,8 +578,20 @@ public:
 
   virtual void MessageReceived(BMessage *msg)
   {
+    if (msg->WasDropped())
+      {
+        BPoint p = msg->DropPoint();
+        ConvertFromScreen(&p);
+        setSource(SRC_DROP, new BMessage(*msg));
+        fDragInside = false;
+        postEvent(EV_DROP, fId, (int32) p.x, (int32) p.y, 0, modifiers());
+        return;
+      }
     switch (msg->what)
       {
+      case B_INPUT_METHOD_EVENT:
+        InputMethodEvent(msg);
+        return;
       case B_CUT:
         postEvent(EV_EDIT, fId, EDIT_CUT);
         return;
@@ -550,6 +620,39 @@ public:
   }
 
 private:
+  void InputMethodEvent(BMessage *msg)
+  {
+    int32 opcode = -1;
+    msg->FindInt32("be:opcode", &opcode);
+    switch (opcode)
+      {
+      case B_INPUT_METHOD_STARTED:
+        {
+          BMessenger reply;
+          if (msg->FindMessenger("be:reply_to", &reply) == B_OK)
+            fIMReply = reply;
+          postEvent(EV_IM, fId, opcode);
+          break;
+        }
+      case B_INPUT_METHOD_CHANGED:
+        {
+          const char *text = "";
+          bool confirmed = false;
+          int32 selStart = 0, selEnd = 0;
+          msg->FindString("be:string", &text);
+          msg->FindBool("be:confirmed", &confirmed);
+          msg->FindInt32("be:selection", 0, &selStart);
+          msg->FindInt32("be:selection", 1, &selEnd);
+          imChanged(fId, text, strlen(text), selStart, selEnd, confirmed);
+          break;
+        }
+      case B_INPUT_METHOD_LOCATION_REQUEST:
+      case B_INPUT_METHOD_STOPPED:
+        postEvent(EV_IM, fId, opcode);
+        break;
+      }
+  }
+
   void PostKey(int32 type, const char *bytes, int32 numBytes)
   {
     BMessage *msg = Window()->CurrentMessage();
@@ -582,9 +685,15 @@ private:
     return 0;
   }
 
+public:
+  /* The input method that talks to this view. */
+  BMessenger fIMReply;
+
+private:
   int32 fId;
   BBitmap *fBitmap;
   int32 fButtons;
+  bool fDragInside;
 };
 
 class PeerWindow : public BWindow
@@ -692,6 +801,17 @@ public:
   virtual void WindowActivated(bool active)
   {
     postEvent(EV_ACTIVATED, fId, active ? 1 : 0);
+  }
+
+  /* Input method events sent to the window go to the view. */
+  virtual void MessageReceived(BMessage *msg)
+  {
+    if (msg->what == B_INPUT_METHOD_EVENT)
+      {
+        fView->MessageReceived(msg);
+        return;
+      }
+    BWindow::MessageReceived(msg);
   }
 
   PeerView *View() { return fView; }
@@ -1693,49 +1813,6 @@ Java_gnu_java_awt_peer_haiku_HaikuNative_cursorCreate(JNIEnv *env, jclass,
   return (jlong) (intptr_t) new BCursor(&bmp, BPoint(hx, hy));
 }
 
-/* Puts text on the system clipboard.  Returns the clipboard count. */
-JNIEXPORT jlong JNICALL
-Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSetText(JNIEnv *env,
-                                                          jclass,
-                                                          jstring text)
-{
-  std::string t = utf8FromString(env, text);
-  jlong count = -1;
-  if (be_clipboard->Lock())
-    {
-      be_clipboard->Clear();
-      BMessage *data = be_clipboard->Data();
-      if (data != NULL)
-        {
-          data->AddData("text/plain", B_MIME_TYPE, t.data(), t.size());
-          be_clipboard->Commit();
-        }
-      count = be_clipboard->SystemCount();
-      be_clipboard->Unlock();
-    }
-  return count;
-}
-
-/* The text on the system clipboard, or null. */
-JNIEXPORT jstring JNICALL
-Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardGetText(JNIEnv *env,
-                                                          jclass)
-{
-  jstring result = NULL;
-  if (be_clipboard->Lock())
-    {
-      BMessage *data = be_clipboard->Data();
-      const void *text = NULL;
-      ssize_t len = 0;
-      if (data != NULL
-          && data->FindData("text/plain", B_MIME_TYPE, &text, &len) == B_OK
-          && text != NULL)
-        result = newStringFromUTF8(env, (const char *) text, len);
-      be_clipboard->Unlock();
-    }
-  return result;
-}
-
 /* Changes every time any application writes to the clipboard. */
 JNIEXPORT jlong JNICALL
 Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardCount(JNIEnv *, jclass)
@@ -2183,6 +2260,823 @@ Java_gnu_javax_sound_sampled_haiku_HaikuAudio_setGain(JNIEnv *, jclass,
   pthread_mutex_lock(&s->lock);
   s->gain = gain;
   pthread_mutex_unlock(&s->lock);
+}
+
+} /* extern "C" */
+
+/* ------------------------------------------------------------------ */
+/* Window feel, data transfer (clipboard and drag and drop), printing and
+   input methods. */
+
+/* Message sources, guarded by gSourceLock.  Each new message gets a new
+   generation number, so Java can see that its data went away. */
+static pthread_mutex_t gSourceLock = PTHREAD_MUTEX_INITIALIZER;
+static BMessage *gSources[SRC_COUNT];
+static int32 gSourceGen[SRC_COUNT];
+
+static void
+setSource(int32 src, BMessage *msg)
+{
+  pthread_mutex_lock(&gSourceLock);
+  delete gSources[src];
+  gSources[src] = msg;
+  gSourceGen[src]++;
+  pthread_mutex_unlock(&gSourceLock);
+}
+
+/* Converts any bitmap to B_RGBA32, which Java reads as 0xAARRGGBB. */
+static BBitmap *
+toRGBA32(BBitmap *bmp)
+{
+  if (bmp == NULL || bmp->ColorSpace() == B_RGBA32)
+    return bmp;
+  BBitmap *out = new BBitmap(bmp->Bounds(), B_RGBA32);
+  if (out->InitCheck() != B_OK
+      || out->ImportBits(bmp) != B_OK)
+    {
+      delete out;
+      out = NULL;
+    }
+  delete bmp;
+  return out;
+}
+
+/* The picture in a message, as B_RGBA32, or NULL.  Archived bitmaps
+   ("image/bitmap", "image/x-be-bitmap") come first, then any image data
+   that a translator can read. */
+static BBitmap *
+messageImage(BMessage *msg)
+{
+  static const char *archives[] = { "image/bitmap", "image/x-be-bitmap" };
+  for (int i = 0; i < 2; i++)
+    {
+      BMessage archive;
+      if (msg->FindMessage(archives[i], &archive) == B_OK)
+        {
+          BArchivable *obj = BBitmap::Instantiate(&archive);
+          BBitmap *bmp = dynamic_cast<BBitmap *>(obj);
+          if (bmp != NULL)
+            return toRGBA32(bmp);
+          delete obj;
+        }
+    }
+  char *name;
+  type_code type;
+  for (int32 i = 0; msg->GetInfo(B_MIME_TYPE, i, &name, &type) == B_OK; i++)
+    {
+      if (strncmp(name, "image/", 6) != 0)
+        continue;
+      const void *data;
+      ssize_t len;
+      if (msg->FindData(name, B_MIME_TYPE, &data, &len) != B_OK)
+        continue;
+      BMemoryIO io(data, len);
+      BBitmap *bmp = BTranslationUtils::GetBitmap(&io);
+      if (bmp != NULL)
+        return toRGBA32(bmp);
+    }
+  return NULL;
+}
+
+/* A B_RGBA32 bitmap from Java ARGB pixels. */
+static BBitmap *
+bitmapFromPixels(JNIEnv *env, jintArray pixels, jint w, jint h)
+{
+  if (pixels == NULL || w < 1 || h < 1)
+    return NULL;
+  BBitmap *bmp = new BBitmap(BRect(0, 0, w - 1, h - 1), B_RGBA32);
+  if (bmp->InitCheck() != B_OK)
+    {
+      delete bmp;
+      return NULL;
+    }
+  jint *src = env->GetIntArrayElements(pixels, NULL);
+  if (src == NULL)
+    {
+      delete bmp;
+      return NULL;
+    }
+  uint8 *bits = (uint8 *) bmp->Bits();
+  for (jint row = 0; row < h; row++)
+    memcpy(bits + row * bmp->BytesPerRow(), src + row * w, w * 4);
+  env->ReleaseIntArrayElements(pixels, src, JNI_ABORT);
+  return bmp;
+}
+
+/* Puts a composing text window near the text.  It never takes focus. */
+class CompositionView : public BView
+{
+public:
+  CompositionView(BRect r)
+    : BView(r, "composition", B_FOLLOW_ALL_SIDES, B_WILL_DRAW) {}
+
+  void SetText(const char *t, int32 selStart, int32 selEnd)
+  {
+    fText = t;
+    fSelStart = selStart;
+    fSelEnd = selEnd;
+    Invalidate();
+  }
+
+  virtual void Draw(BRect)
+  {
+    SetHighColor(255, 255, 230);
+    FillRect(Bounds());
+    font_height fh;
+    GetFontHeight(&fh);
+    float base = 3 + fh.ascent;
+    /* Selected (converting) part: inverted. */
+    if (fSelEnd > fSelStart)
+      {
+        float x0 = 4 + StringWidth(fText.c_str(), fSelStart);
+        float x1 = 4 + StringWidth(fText.c_str(), fSelEnd);
+        SetHighColor(40, 60, 140);
+        FillRect(BRect(x0, 2, x1, base + fh.descent));
+      }
+    SetLowColor(255, 255, 230);
+    SetHighColor(0, 0, 0);
+    SetDrawingMode(B_OP_OVER);
+    DrawString(fText.c_str(), BPoint(4, base));
+    SetDrawingMode(B_OP_COPY);
+    StrokeLine(BPoint(4, base + 2),
+               BPoint(4 + StringWidth(fText.c_str()), base + 2));
+    SetHighColor(150, 150, 150);
+    StrokeRect(Bounds());
+  }
+
+private:
+  std::string fText;
+  int32 fSelStart, fSelEnd;
+};
+
+static pthread_mutex_t gIMLock = PTHREAD_MUTEX_INITIALIZER;
+static std::map<int32, std::string> gIMText;
+static BWindow *gCompWindow;
+static CompositionView *gCompView;
+
+/* Number of UTF-16 units in the first n bytes of UTF-8 text. */
+static int32
+utf16Length(const char *s, int32 n)
+{
+  int32 units = 0;
+  for (int32 i = 0; i < n; i++)
+    {
+      unsigned char c = s[i];
+      if ((c & 0xC0) != 0x80)
+        units += c >= 0xF0 ? 2 : 1;
+    }
+  return units;
+}
+
+static void
+imChanged(int32 id, const char *text, int32 len, int32 selStart,
+          int32 selEnd, bool confirmed)
+{
+  pthread_mutex_lock(&gIMLock);
+  gIMText[id] = std::string(text, len);
+  pthread_mutex_unlock(&gIMLock);
+  if (selStart < 0 || selStart > len) selStart = 0;
+  if (selEnd < selStart || selEnd > len) selEnd = selStart;
+  postEvent(EV_IM, id, B_INPUT_METHOD_CHANGED, confirmed ? 1 : 0,
+            utf16Length(text, selStart), utf16Length(text, selEnd));
+}
+
+/* The view that prints one page: it draws the page bitmap scaled to its
+   bounds (the printable area, in points). */
+class PrintView : public BView
+{
+public:
+  PrintView(BRect r, BBitmap *page)
+    : BView(r, "page", B_FOLLOW_NONE, B_WILL_DRAW), fPage(page) {}
+
+  virtual void Draw(BRect)
+  {
+    DrawBitmap(fPage, fPage->Bounds(), Bounds(), B_FILTER_BITMAP_BILINEAR);
+  }
+
+private:
+  BBitmap *fPage;
+};
+
+static BPrintJob *
+pjob(jlong h)
+{
+  return (BPrintJob *) (intptr_t) h;
+}
+
+static BMessage *
+msgOf(jlong h)
+{
+  return (BMessage *) (intptr_t) h;
+}
+
+extern "C" {
+
+/* Sets the window feel: B_NORMAL_WINDOW_FEEL, B_MODAL_APP_WINDOW_FEEL,
+   B_FLOATING_ALL_WINDOW_FEEL... */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_setFeel(JNIEnv *, jclass, jlong h,
+                                                 jint feel)
+{
+  PeerWindow *pw = win(h);
+  if (pw->Lock())
+    {
+      if (pw->Feel() != (window_feel) feel)
+        pw->SetFeel((window_feel) feel);
+      pw->Unlock();
+    }
+}
+
+/* Messages that Java fills, then puts on the clipboard or drags. */
+
+JNIEXPORT jlong JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgNew(JNIEnv *, jclass, jint what)
+{
+  return (jlong) (intptr_t) new BMessage((uint32) what);
+}
+
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgDelete(JNIEnv *, jclass, jlong h)
+{
+  delete msgOf(h);
+}
+
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddData(JNIEnv *env, jclass,
+                                                    jlong h, jstring mime,
+                                                    jbyteArray data)
+{
+  std::string m = utf8FromString(env, mime);
+  jsize n = env->GetArrayLength(data);
+  jbyte *b = env->GetByteArrayElements(data, NULL);
+  if (b == NULL)
+    return;
+  msgOf(h)->AddData(m.c_str(), B_MIME_TYPE, b, n);
+  env->ReleaseByteArrayElements(data, b, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddInt(JNIEnv *env, jclass,
+                                                   jlong h, jstring name,
+                                                   jint v)
+{
+  std::string n = utf8FromString(env, name);
+  msgOf(h)->AddInt32(n.c_str(), v);
+}
+
+/* Adds a picture as an archived bitmap ("image/bitmap", as ShowImage
+   copies it) and as PNG data. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddImage(JNIEnv *env, jclass,
+                                                     jlong h,
+                                                     jintArray pixels,
+                                                     jint w, jint hh)
+{
+  BBitmap *bmp = bitmapFromPixels(env, pixels, w, hh);
+  if (bmp == NULL)
+    return;
+  BMessage archive;
+  if (bmp->Archive(&archive) == B_OK)
+    msgOf(h)->AddMessage("image/bitmap", &archive);
+  BBitmapStream stream(bmp);
+  BMallocIO png;
+  if (BTranslatorRoster::Default()->Translate(&stream, NULL, NULL, &png,
+                                              B_PNG_FORMAT) == B_OK)
+    msgOf(h)->AddData("image/png", B_MIME_TYPE, png.Buffer(),
+                      png.BufferLength());
+  BBitmap *back = NULL;
+  stream.DetachBitmap(&back);
+  delete back;
+}
+
+/* Adds files as entry_refs ("refs"), as Tracker drags them. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddFiles(JNIEnv *env, jclass,
+                                                     jlong h,
+                                                     jobjectArray paths)
+{
+  jsize n = env->GetArrayLength(paths);
+  for (jsize i = 0; i < n; i++)
+    {
+      jstring js = (jstring) env->GetObjectArrayElement(paths, i);
+      std::string p = utf8FromString(env, js);
+      if (js != NULL)
+        env->DeleteLocalRef(js);
+      entry_ref ref;
+      if (get_ref_for_path(p.c_str(), &ref) == B_OK)
+        msgOf(h)->AddRef("refs", &ref);
+    }
+}
+
+/* Replaces the clipboard with the fields of a message (and deletes the
+   message).  Returns the new clipboard count. */
+JNIEXPORT jlong JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardPut(JNIEnv *, jclass,
+                                                      jlong h)
+{
+  BMessage *msg = msgOf(h);
+  jlong count = -1;
+  if (be_clipboard->Lock())
+    {
+      be_clipboard->Clear();
+      BMessage *data = be_clipboard->Data();
+      if (data != NULL)
+        {
+          *data = *msg;
+          be_clipboard->Commit();
+        }
+      count = be_clipboard->SystemCount();
+      be_clipboard->Unlock();
+    }
+  delete msg;
+  return count;
+}
+
+/* Copies the clipboard into SRC_CLIPBOARD.  Returns the clipboard count. */
+JNIEXPORT jlong JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSnapshot(JNIEnv *, jclass)
+{
+  jlong count = -1;
+  if (be_clipboard->Lock())
+    {
+      BMessage *data = be_clipboard->Data();
+      setSource(SRC_CLIPBOARD, data != NULL ? new BMessage(*data)
+                                            : new BMessage());
+      count = be_clipboard->SystemCount();
+      be_clipboard->Unlock();
+    }
+  return count;
+}
+
+/* Reading message sources. */
+
+JNIEXPORT jint JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgGeneration(JNIEnv *, jclass,
+                                                       jint src)
+{
+  pthread_mutex_lock(&gSourceLock);
+  jint g = gSourceGen[src];
+  pthread_mutex_unlock(&gSourceLock);
+  return g;
+}
+
+/* The data types in a source: MIME types, "refs" for files, and the
+   names of archived bitmaps. */
+JNIEXPORT jobjectArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgTypes(JNIEnv *env, jclass,
+                                                  jint src)
+{
+  std::vector<std::string> types;
+  pthread_mutex_lock(&gSourceLock);
+  BMessage *msg = gSources[src];
+  if (msg != NULL)
+    {
+      char *name;
+      type_code type;
+      int32 count;
+      for (int32 i = 0;
+           msg->GetInfo(B_ANY_TYPE, i, &name, &type, &count) == B_OK; i++)
+        if (type == B_MIME_TYPE || type == B_REF_TYPE
+            || (type == B_MESSAGE_TYPE && strncmp(name, "image/", 6) == 0))
+          types.push_back(name);
+    }
+  pthread_mutex_unlock(&gSourceLock);
+  jobjectArray arr = env->NewObjectArray(types.size(),
+                                         env->FindClass("java/lang/String"),
+                                         NULL);
+  for (size_t i = 0; i < types.size(); i++)
+    {
+      jstring js = newStringFromUTF8(env, types[i].data(), types[i].size());
+      env->SetObjectArrayElement(arr, i, js);
+      env->DeleteLocalRef(js);
+    }
+  return arr;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgData(JNIEnv *env, jclass,
+                                                 jint src, jstring mime)
+{
+  std::string m = utf8FromString(env, mime);
+  jbyteArray result = NULL;
+  pthread_mutex_lock(&gSourceLock);
+  BMessage *msg = gSources[src];
+  const void *data;
+  ssize_t len;
+  if (msg != NULL
+      && msg->FindData(m.c_str(), B_MIME_TYPE, &data, &len) == B_OK)
+    {
+      result = env->NewByteArray(len);
+      env->SetByteArrayRegion(result, 0, len, (jbyte *) data);
+    }
+  pthread_mutex_unlock(&gSourceLock);
+  return result;
+}
+
+/* The picture in a source as ARGB pixels; dims = width, height. */
+JNIEXPORT jintArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgImage(JNIEnv *env, jclass,
+                                                  jint src, jintArray dims)
+{
+  BMessage copy;
+  pthread_mutex_lock(&gSourceLock);
+  bool have = gSources[src] != NULL;
+  if (have)
+    copy = *gSources[src];
+  pthread_mutex_unlock(&gSourceLock);
+  BBitmap *bmp = have ? messageImage(&copy) : NULL;
+  if (bmp == NULL)
+    return NULL;
+  jint w = bmp->Bounds().IntegerWidth() + 1;
+  jint h = bmp->Bounds().IntegerHeight() + 1;
+  jintArray result = env->NewIntArray(w * h);
+  const uint8 *bits = (const uint8 *) bmp->Bits();
+  for (jint row = 0; row < h; row++)
+    env->SetIntArrayRegion(result, row * w, w,
+                           (jint *) (bits + row * bmp->BytesPerRow()));
+  delete bmp;
+  jint d[2] = { w, h };
+  env->SetIntArrayRegion(dims, 0, 2, d);
+  return result;
+}
+
+/* The files ("refs") in a source as paths. */
+JNIEXPORT jobjectArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgFiles(JNIEnv *env, jclass,
+                                                  jint src)
+{
+  std::vector<std::string> paths;
+  pthread_mutex_lock(&gSourceLock);
+  BMessage *msg = gSources[src];
+  entry_ref ref;
+  for (int32 i = 0; msg != NULL && msg->FindRef("refs", i, &ref) == B_OK; i++)
+    {
+      BPath path(&ref);
+      if (path.InitCheck() == B_OK)
+        paths.push_back(path.Path());
+    }
+  pthread_mutex_unlock(&gSourceLock);
+  jobjectArray arr = env->NewObjectArray(paths.size(),
+                                         env->FindClass("java/lang/String"),
+                                         NULL);
+  for (size_t i = 0; i < paths.size(); i++)
+    {
+      jstring js = newStringFromUTF8(env, paths[i].data(), paths[i].size());
+      env->SetObjectArrayElement(arr, i, js);
+      env->DeleteLocalRef(js);
+    }
+  return arr;
+}
+
+JNIEXPORT jint JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_msgInt(JNIEnv *env, jclass,
+                                                jint src, jstring name,
+                                                jint def)
+{
+  std::string n = utf8FromString(env, name);
+  int32 v = def;
+  pthread_mutex_lock(&gSourceLock);
+  if (gSources[src] != NULL)
+    gSources[src]->FindInt32(n.c_str(), &v);
+  pthread_mutex_unlock(&gSourceLock);
+  return v;
+}
+
+/* Starts dragging a message (deleted here) from a window.  The drag shows
+   the picture (with the mouse at offset) or else the rectangle. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_dragStart(JNIEnv *env, jclass,
+                                                   jlong h, jlong m,
+                                                   jint x, jint y, jint w,
+                                                   jint hh,
+                                                   jintArray pixels,
+                                                   jint iw, jint ih,
+                                                   jint offX, jint offY)
+{
+  PeerWindow *pw = win(h);
+  BMessage *msg = msgOf(m);
+  BBitmap *bmp = bitmapFromPixels(env, pixels, iw, ih);
+  if (pw->Lock())
+    {
+      if (bmp != NULL)
+        pw->View()->DragMessage(msg, bmp, B_OP_ALPHA, BPoint(offX, offY));
+      else
+        pw->View()->DragMessage(msg, BRect(x, y, x + w - 1, y + hh - 1));
+      pw->Unlock();
+    }
+  else
+    delete bmp;
+  delete msg;
+}
+
+/* Printing with BPrintJob.  Pages are bitmaps that Java renders. */
+
+/* Makes a print job.  Shows the page setup and print dialogs if asked;
+   returns 0 if the user cancelled. */
+JNIEXPORT jlong JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_printCreate(JNIEnv *env, jclass,
+                                                     jstring name,
+                                                     jboolean pageDialog,
+                                                     jboolean jobDialog)
+{
+  std::string n = utf8FromString(env, name);
+  BPrintJob *job = new BPrintJob(n.empty() ? "Java" : n.c_str());
+  if ((pageDialog && job->ConfigPage() != B_OK)
+      || (jobDialog && job->ConfigJob() != B_OK))
+    {
+      delete job;
+      return 0;
+    }
+  if (!pageDialog && !jobDialog)
+    {
+      /* No dialog: use the print server's default settings.  BeginJob()
+         needs a settings message, and BPrintJob keeps its defaults to
+         itself. */
+      static const char *kPrintServer = "application/x-vnd.Be-PSRV";
+      BMessenger server(kPrintServer);
+      if (!server.IsValid())
+        {
+          be_roster->Launch(kPrintServer);
+          for (int i = 0; i < 50 && !server.IsValid(); i++)
+            {
+              snooze(100000);
+              server = BMessenger(kPrintServer);
+            }
+        }
+      BMessage request('pdef'); /* PSRV_GET_DEFAULT_SETTINGS */
+      BMessage *settings = new BMessage;
+      if (server.SendMessage(&request, settings, 10000000, 10000000) != B_OK
+          || settings->what == (uint32) B_ERROR
+          || settings->CountNames(B_ANY_TYPE) <= 0)
+        {
+          delete settings;
+          delete job;
+          return 0;
+        }
+      /* The page setup dialog adds the scale; without it, drivers such
+         as Preview draw the page at size 0. */
+      if (!settings->HasFloat("scale"))
+        settings->AddFloat("scale", 100.0f);
+      job->SetSettings(settings);
+    }
+  return (jlong) (intptr_t) job;
+}
+
+/* Shows the page setup or print dialog again; false if cancelled. */
+JNIEXPORT jboolean JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_printDialog(JNIEnv *, jclass,
+                                                     jlong h,
+                                                     jboolean page)
+{
+  BPrintJob *job = pjob(h);
+  return (page ? job->ConfigPage() : job->ConfigJob()) == B_OK;
+}
+
+/* out = paper left, top, right, bottom, printable left, top, right,
+   bottom (points), first page, last page, x dpi, y dpi. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_printInfo(JNIEnv *env, jclass,
+                                                   jlong h, jfloatArray out)
+{
+  BPrintJob *job = pjob(h);
+  BRect paper = job->PaperRect();
+  BRect printable = job->PrintableRect();
+  int32 xdpi = 72, ydpi = 72;
+  job->GetResolution(&xdpi, &ydpi);
+  jfloat v[12] = { paper.left, paper.top, paper.right, paper.bottom,
+                   printable.left, printable.top, printable.right,
+                   printable.bottom, (jfloat) job->FirstPage(),
+                   (jfloat) job->LastPage(), (jfloat) xdpi, (jfloat) ydpi };
+  env->SetFloatArrayRegion(out, 0, 12, v);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_printBegin(JNIEnv *, jclass,
+                                                    jlong h)
+{
+  BPrintJob *job = pjob(h);
+  job->BeginJob();
+  return job->CanContinue();
+}
+
+/* Spools one page: w x h ARGB pixels that fill the printable area. */
+JNIEXPORT jboolean JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_printPage(JNIEnv *env, jclass,
+                                                   jlong h, jintArray pixels,
+                                                   jint w, jint hh)
+{
+  BPrintJob *job = pjob(h);
+  if (!job->CanContinue())
+    return JNI_FALSE;
+  BBitmap *page = bitmapFromPixels(env, pixels, w, hh);
+  if (page == NULL)
+    return JNI_FALSE;
+  BRect area = job->PrintableRect().OffsetToCopy(0, 0);
+  BWindow *window = new BWindow(area, "print", B_NO_BORDER_WINDOW_LOOK,
+                                B_NORMAL_WINDOW_FEEL, B_AVOID_FOCUS);
+  PrintView *view = new PrintView(area, page);
+  window->Lock();
+  window->AddChild(view);
+  window->Unlock();
+  job->DrawView(view, area, BPoint(0, 0));
+  job->SpoolPage();
+  window->Lock();
+  window->Quit();
+  delete page;
+  return job->CanContinue();
+}
+
+/* Sends the job to the printer (commit) or drops it, and frees it. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_printEnd(JNIEnv *, jclass, jlong h,
+                                                  jboolean commit)
+{
+  BPrintJob *job = pjob(h);
+  if (commit)
+    job->CommitJob();
+  else
+    job->CancelJob();
+  delete job;
+}
+
+/* Input methods. */
+
+/* The text of the last B_INPUT_METHOD_CHANGED in a window. */
+JNIEXPORT jstring JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_imText(JNIEnv *env, jclass,
+                                                jint id)
+{
+  std::string t;
+  pthread_mutex_lock(&gIMLock);
+  t = gIMText[id];
+  pthread_mutex_unlock(&gIMLock);
+  return newStringFromUTF8(env, t.data(), t.size());
+}
+
+/* Answers B_INPUT_METHOD_LOCATION_REQUEST: the screen position of each
+   character of the composed text, and the line height. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_imLocationReply(JNIEnv *env,
+                                                         jclass, jlong h,
+                                                         jintArray xs,
+                                                         jintArray ys,
+                                                         jfloat height)
+{
+  PeerWindow *pw = win(h);
+  BMessenger reply;
+  if (pw->Lock())
+    {
+      reply = pw->View()->fIMReply;
+      pw->Unlock();
+    }
+  if (!reply.IsValid())
+    return;
+  BMessage msg(B_INPUT_METHOD_EVENT);
+  msg.AddInt32("be:opcode", B_INPUT_METHOD_LOCATION_REQUEST);
+  jsize n = env->GetArrayLength(xs);
+  jint *x = env->GetIntArrayElements(xs, NULL);
+  jint *y = env->GetIntArrayElements(ys, NULL);
+  for (jsize i = 0; x != NULL && y != NULL && i < n; i++)
+    msg.AddPoint("be:location_reply", BPoint(x[i], y[i]));
+  if (x != NULL)
+    env->ReleaseIntArrayElements(xs, x, JNI_ABORT);
+  if (y != NULL)
+    env->ReleaseIntArrayElements(ys, y, JNI_ABORT);
+  msg.AddFloat("be:height_reply", height);
+  reply.SendMessage(&msg);
+}
+
+/* Shows composing text (null hides it) in a small window at screen point
+   (x, y); selStart and selEnd are UTF-16 offsets of the converting part. */
+JNIEXPORT void JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_imShowComposition(JNIEnv *env,
+                                                           jclass,
+                                                           jstring text,
+                                                           jint x, jint y,
+                                                           jint selStart,
+                                                           jint selEnd)
+{
+  pthread_mutex_lock(&gIMLock);
+  if (gCompWindow == NULL)
+    {
+      gCompWindow = new BWindow(BRect(0, 0, 10, 10), "composition",
+                                B_NO_BORDER_WINDOW_LOOK,
+                                B_FLOATING_ALL_WINDOW_FEEL,
+                                B_AVOID_FOCUS | B_NOT_MOVABLE
+                                | B_NOT_RESIZABLE);
+      gCompView = new CompositionView(gCompWindow->Bounds());
+      gCompWindow->AddChild(gCompView);
+      gCompWindow->Hide();
+      gCompWindow->Show();
+    }
+  BWindow *w = gCompWindow;
+  CompositionView *v = gCompView;
+  pthread_mutex_unlock(&gIMLock);
+  if (!w->Lock())
+    return;
+  if (text == NULL || env->GetStringLength(text) == 0)
+    {
+      if (!w->IsHidden())
+        w->Hide();
+    }
+  else
+    {
+      std::string t = utf8FromString(env, text);
+      /* UTF-16 offsets to byte offsets. */
+      int32 bytes[2] = { 0, 0 };
+      jint want[2] = { selStart, selEnd };
+      for (int k = 0; k < 2; k++)
+        {
+          int32 units = 0;
+          size_t i = 0;
+          while (i < t.size() && units < want[k])
+            {
+              unsigned char c = t[i];
+              units += c >= 0xF0 ? 2 : 1;
+              i++;
+              while (i < t.size() && ((unsigned char) t[i] & 0xC0) == 0x80)
+                i++;
+            }
+          bytes[k] = i;
+        }
+      font_height fh;
+      v->GetFontHeight(&fh);
+      float width = v->StringWidth(t.c_str()) + 8;
+      float height = fh.ascent + fh.descent + 7;
+      w->ResizeTo(width, height);
+      w->MoveTo(x, y);
+      v->SetText(t.c_str(), bytes[0], bytes[1]);
+      if (w->IsHidden())
+        w->Show();
+    }
+  w->Unlock();
+}
+
+} /* extern "C" */
+
+/* ------------------------------------------------------------------ */
+/* Text that the Java fonts cannot show (for example Chinese and
+   Japanese: Haiku's CJK fonts are CFF2 fonts, which GNU Classpath cannot
+   read).  The app_server draws it, with its own font fallback. */
+
+extern "C" {
+
+/* Draws text white on black and returns its coverage (0..255) per pixel;
+   dims = width, height, ascent. */
+JNIEXPORT jintArray JNICALL
+Java_gnu_java_awt_peer_haiku_HaikuNative_textRender(JNIEnv *env, jclass,
+                                                    jstring text,
+                                                    jfloat size,
+                                                    jboolean bold,
+                                                    jboolean italic,
+                                                    jintArray dims)
+{
+  std::string t = utf8FromString(env, text);
+  if (t.empty() || size <= 0)
+    return NULL;
+  BFont font(be_plain_font);
+  font.SetSize(size);
+  uint16 face = 0;
+  if (bold)
+    face |= B_BOLD_FACE;
+  if (italic)
+    face |= B_ITALIC_FACE;
+  if (face != 0)
+    font.SetFace(face);
+  font_height fh;
+  font.GetHeight(&fh);
+  int32 ascent = (int32) ceilf(fh.ascent);
+  int32 w = (int32) ceilf(font.StringWidth(t.c_str())) + 1;
+  int32 h = ascent + (int32) ceilf(fh.descent) + 1;
+  BBitmap bmp(BRect(0, 0, w - 1, h - 1), B_RGBA32, true);
+  if (bmp.InitCheck() != B_OK)
+    return NULL;
+  BView *view = new BView(bmp.Bounds(), "text", B_FOLLOW_NONE, 0);
+  bmp.AddChild(view);
+  if (!bmp.Lock())
+    return NULL;
+  view->SetHighColor(0, 0, 0);
+  view->FillRect(view->Bounds());
+  view->SetHighColor(255, 255, 255);
+  view->SetLowColor(0, 0, 0);
+  view->SetFont(&font);
+  view->SetDrawingMode(B_OP_OVER);
+  view->DrawString(t.c_str(), BPoint(0, ascent));
+  view->Sync();
+  jintArray result = env->NewIntArray(w * h);
+  std::vector<jint> row(w);
+  const uint8 *bits = (const uint8 *) bmp.Bits();
+  for (int32 y = 0; y < h; y++)
+    {
+      const uint8 *p = bits + y * bmp.BytesPerRow();
+      for (int32 x = 0; x < w; x++)
+        row[x] = p[x * 4 + 1]; /* green channel */
+      env->SetIntArrayRegion(result, y * w, w, &row[0]);
+    }
+  bmp.Unlock();
+  jint d[3] = { w, h, ascent };
+  env->SetIntArrayRegion(dims, 0, 3, d);
+  return result;
 }
 
 } /* extern "C" */

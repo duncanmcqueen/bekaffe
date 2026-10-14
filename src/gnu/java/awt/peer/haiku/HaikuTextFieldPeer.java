@@ -53,6 +53,7 @@ import javax.swing.JTextField;
  */
 public class HaikuTextFieldPeer
   extends SwingTextFieldPeer
+  implements java.awt.dnd.peer.DropTargetPeer
 {
 
   HaikuTextFieldPeer(final TextField tf)
@@ -70,10 +71,37 @@ public class HaikuTextFieldPeer
       });
   }
 
+  /**
+   * Focus events come from the AWT TextField, but Swing's text UI expects
+   * its JTextField as the source (it throws a ClassCastException).
+   */
+  protected void handleFocusEvent(java.awt.event.FocusEvent e)
+  {
+    super.handleFocusEvent(new java.awt.event.FocusEvent(textComponent(),
+                                                         e.getID(),
+                                                         e.isTemporary()));
+  }
+
+  /** The Swing text field that draws this TextField. */
+  javax.swing.text.JTextComponent textComponent()
+  {
+    return (javax.swing.text.JTextComponent) swingComponent.getJComponent();
+  }
+
   /** Shows the new cursor if the mouse is over this component. */
   public void setCursor(java.awt.Cursor cursor)
   {
     super.setCursor(cursor);
     HaikuEventPump.get().refreshCursor();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 }

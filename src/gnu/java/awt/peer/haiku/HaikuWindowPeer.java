@@ -74,6 +74,7 @@ import java.awt.image.VolatileImage;
  */
 public class HaikuWindowPeer
   extends SwingWindowPeer
+  implements java.awt.dnd.peer.DropTargetPeer
 {
 
   private static int nextId = 1;
@@ -143,6 +144,8 @@ public class HaikuWindowPeer
       HaikuNative.setResizable(handle, ((Frame) window).isResizable());
     else if (window instanceof Dialog)
       HaikuNative.setResizable(handle, ((Dialog) window).isResizable());
+    if (window.isAlwaysOnTop())
+      updateFeel();
   }
 
   /**
@@ -426,9 +429,47 @@ public class HaikuWindowPeer
     HaikuNative.toFront(handle);
   }
 
+  /** True while this is a shown modal dialog. */
+  private boolean modalShown;
+
+  void setModalShown(boolean shown)
+  {
+    modalShown = shown;
+    updateFeel();
+  }
+
+  /**
+   * A modal dialog has the modal app feel; an always-on-top window floats
+   * above all windows of all applications.
+   */
+  void updateFeel()
+  {
+    int feel = HaikuNative.B_NORMAL_WINDOW_FEEL;
+    if (modalShown)
+      feel = HaikuNative.B_MODAL_APP_WINDOW_FEEL;
+    else if (getWindow().isAlwaysOnTop())
+      feel = HaikuNative.B_FLOATING_ALL_WINDOW_FEEL;
+    HaikuNative.setFeel(handle, feel);
+  }
+
   public void updateAlwaysOnTop()
   {
-    // TODO: B_FLOATING_ALL_WINDOW_FEEL.
+    updateFeel();
+  }
+
+  public void setAlwaysOnTop(boolean alwaysOnTop)
+  {
+    updateFeel();
+  }
+
+  // Drop targets are found by the event pump; nothing to register.
+
+  public void addDropTarget(java.awt.dnd.DropTarget target)
+  {
+  }
+
+  public void removeDropTarget(java.awt.dnd.DropTarget target)
+  {
   }
 
   public boolean requestWindowFocus()

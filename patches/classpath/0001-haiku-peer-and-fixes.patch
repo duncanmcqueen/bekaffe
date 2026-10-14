@@ -1,15 +1,17 @@
-From 27ee4748f5680333093504552b0d99fd5ed5d3ea Mon Sep 17 00:00:00 2001
+From 8b2c94451c1acef7a73e0be222388d358b0d857d Mon Sep 17 00:00:00 2001
 From: duncanmcqueen <206344294+duncanmcqueen@users.noreply.github.com>
 Date: Tue, 13 Oct 2026 21:16:30 -0500
 Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
  Haiku
 
 - gnu.java.awt.peer.haiku: an AWT toolkit with native Haiku windows,
-  menus, file panels, cursors and clipboard.
+  menus, file panels, cursors, clipboard (text, pictures, files, MIME
+  data), drag and drop, printing (BPrintJob), input methods, modal and
+  always-on-top windows.
 - gnu.javax.sound.sampled.haiku: a javax.sound mixer that plays
   through the Haiku media server.
-- native/jni/haiku-peer: libhaikupeer (-lbe -ltracker -lmedia), with
-  JNI headers in include/.
+- native/jni/haiku-peer: libhaikupeer (-lbe -ltracker -lmedia
+  -ltranslation), with JNI headers in include/.
 - configure: --enable-haiku-peer, on by default on Haiku. It makes
   HaikuToolkit the default toolkit and registers the Haiku mixer.
   Look for socket functions in libnetwork too. Remove the stray
@@ -18,8 +20,13 @@ Subject: [PATCH] Add the Haiku AWT and sound peer, and fixes for Kaffe on
   out-of-tree builds get them.
 - cpnet.c: use gethostbyname_r only when its declaration is known.
 - OpenTypeFontPeer reads fonts-<os.name>.properties first; add
-  fonts-haiku.properties.
+  fonts-haiku.properties. Implement canDisplay() and canDisplayUpTo().
 - Frame.setState() set the opposite state.
+- PrinterJob.getPrinterJob() uses the java.awt.printerjob property.
+- DragSource made only one drag context and reused it for every drag.
+- DropTargetDragEvent and DropTargetDropEvent rejected all valid source
+  actions; DropTargetContext.getCurrentDataFlavors() returned null,
+  and its target actions were always 0 (it now asks the peer).
 - Thread: create the thread-local map on first use (Kaffe).
 - ResolverCache: create the cache before the TTLs.
 - VMNetworkInterface: define IFF_RUNNING if missing (Haiku).
@@ -29,59 +36,69 @@ Run autoreconf -fi after applying this patch.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  configure.ac                                  |   33 +-
- gnu/java/awt/font/OpenTypeFontPeer.java       |   11 +-
- gnu/java/awt/peer/haiku/HaikuButtonPeer.java  |   86 +
+ gnu/java/awt/font/OpenTypeFontPeer.java       |   20 +-
+ gnu/java/awt/peer/haiku/HaikuButtonPeer.java  |   97 +
  .../peer/haiku/HaikuCheckboxMenuItemPeer.java |   86 +
- .../awt/peer/haiku/HaikuCheckboxPeer.java     |  174 ++
+ .../awt/peer/haiku/HaikuCheckboxPeer.java     |  185 +
  gnu/java/awt/peer/haiku/HaikuChoicePeer.java  |  211 ++
- gnu/java/awt/peer/haiku/HaikuClipboard.java   |  118 +
+ gnu/java/awt/peer/haiku/HaikuClipboard.java   |   93 +
  gnu/java/awt/peer/haiku/HaikuCursor.java      |   77 +
- gnu/java/awt/peer/haiku/HaikuDialogPeer.java  |   61 +
- gnu/java/awt/peer/haiku/HaikuEventPump.java   |  672 +++++
+ gnu/java/awt/peer/haiku/HaikuDialogPeer.java  |   94 +
+ gnu/java/awt/peer/haiku/HaikuDragDrop.java    |  570 +++
+ gnu/java/awt/peer/haiku/HaikuEventPump.java   |  758 ++++
  .../awt/peer/haiku/HaikuFileDialogPeer.java   |  205 ++
- gnu/java/awt/peer/haiku/HaikuFramePeer.java   |  170 ++
- gnu/java/awt/peer/haiku/HaikuGraphics2D.java  |  732 ++++++
+ gnu/java/awt/peer/haiku/HaikuFramePeer.java   |  170 +
+ gnu/java/awt/peer/haiku/HaikuGraphics2D.java  |  847 +++++
  .../haiku/HaikuGraphicsConfiguration.java     |  130 +
  .../awt/peer/haiku/HaikuGraphicsDevice.java   |   78 +
  .../peer/haiku/HaikuGraphicsEnvironment.java  |   98 +
- gnu/java/awt/peer/haiku/HaikuLabelPeer.java   |   98 +
- gnu/java/awt/peer/haiku/HaikuListPeer.java    |  307 +++
+ .../awt/peer/haiku/HaikuInputMethods.java     |  238 ++
+ gnu/java/awt/peer/haiku/HaikuLabelPeer.java   |  109 +
+ gnu/java/awt/peer/haiku/HaikuListPeer.java    |  307 ++
  gnu/java/awt/peer/haiku/HaikuMenuBarPeer.java |  101 +
- .../awt/peer/haiku/HaikuMenuItemPeer.java     |  166 ++
+ .../awt/peer/haiku/HaikuMenuItemPeer.java     |  166 +
  gnu/java/awt/peer/haiku/HaikuMenuPeer.java    |  124 +
- gnu/java/awt/peer/haiku/HaikuNative.java      |  231 ++
- gnu/java/awt/peer/haiku/HaikuPanelPeer.java   |   95 +
+ gnu/java/awt/peer/haiku/HaikuNative.java      |  338 ++
+ gnu/java/awt/peer/haiku/HaikuPanelPeer.java   |  106 +
  .../awt/peer/haiku/HaikuPopupMenuPeer.java    |   73 +
- .../awt/peer/haiku/HaikuScrollPanePeer.java   |  325 +++
+ gnu/java/awt/peer/haiku/HaikuPrintJob.java    |  214 ++
+ gnu/java/awt/peer/haiku/HaikuPrinterJob.java  |  242 ++
+ .../awt/peer/haiku/HaikuScrollPanePeer.java   |  335 ++
  .../awt/peer/haiku/HaikuScrollbarPeer.java    |  130 +
- gnu/java/awt/peer/haiku/HaikuSwingPeer.java   |  115 +
+ gnu/java/awt/peer/haiku/HaikuSwingPeer.java   |  126 +
  .../awt/peer/haiku/HaikuSwingWrapper.java     |  254 ++
- .../awt/peer/haiku/HaikuTextFieldPeer.java    |   79 +
- gnu/java/awt/peer/haiku/HaikuToolkit.java     |  588 +++++
+ .../awt/peer/haiku/HaikuTextFieldPeer.java    |  107 +
+ gnu/java/awt/peer/haiku/HaikuToolkit.java     |  631 ++++
+ .../awt/peer/haiku/HaikuTransferable.java     |  301 ++
  .../awt/peer/haiku/HaikuVolatileImage.java    |  114 +
- gnu/java/awt/peer/haiku/HaikuWindowPeer.java  |  462 ++++
+ gnu/java/awt/peer/haiku/HaikuWindowPeer.java  |  503 +++
  gnu/javax/sound/sampled/haiku/HaikuAudio.java |  111 +
  gnu/javax/sound/sampled/haiku/HaikuClip.java  |  255 ++
  gnu/javax/sound/sampled/haiku/HaikuLine.java  |  234 ++
  gnu/javax/sound/sampled/haiku/HaikuMixer.java |  230 ++
  .../sampled/haiku/HaikuMixerProvider.java     |   66 +
  .../sampled/haiku/HaikuSourceDataLine.java    |  205 ++
- gnu/javax/sound/sampled/haiku/Pcm.java        |  174 ++
+ gnu/javax/sound/sampled/haiku/Pcm.java        |  174 +
  include/Makefile.am                           |    9 +
- include/gnu_java_awt_peer_haiku_HaikuNative.h |  413 ++++
+ include/gnu_java_awt_peer_haiku_HaikuNative.h |  641 ++++
  ...gnu_javax_sound_sampled_haiku_HaikuAudio.h |  133 +
  java/awt/Frame.java                           |    6 +-
+ java/awt/dnd/DragSource.java                  |   14 +-
+ java/awt/dnd/DropTargetContext.java           |   11 +-
+ java/awt/dnd/DropTargetDragEvent.java         |    2 +-
+ java/awt/dnd/DropTargetDropEvent.java         |    2 +-
+ java/awt/print/PrinterJob.java                |   14 +
  java/lang/Thread.java                         |    7 +-
  java/net/ResolverCache.java                   |   21 +-
  lib/Makefile.am                               |    4 +
  native/jni/Makefile.am                        |    9 +-
  native/jni/haiku-peer/Makefile.am             |   12 +
- .../gnu_java_awt_peer_haiku_HaikuNative.cpp   | 2188 +++++++++++++++++
+ .../gnu_java_awt_peer_haiku_HaikuNative.cpp   | 3082 +++++++++++++++++
  .../java-net/java_net_VMNetworkInterface.c    |    5 +
  native/jni/native-lib/cpnet.c                 |    7 +-
  .../javax.sound.sampled.spi.MixerProvider.in  |    1 +
  .../gnu/java/awt/font/fonts-haiku.properties  |   65 +
- 53 files changed, 10338 insertions(+), 21 deletions(-)
+ 63 files changed, 13553 insertions(+), 38 deletions(-)
  create mode 100644 gnu/java/awt/peer/haiku/HaikuButtonPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCheckboxMenuItemPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCheckboxPeer.java
@@ -89,6 +106,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 gnu/java/awt/peer/haiku/HaikuClipboard.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuCursor.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuDialogPeer.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuDragDrop.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuEventPump.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuFileDialogPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuFramePeer.java
@@ -96,6 +114,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 gnu/java/awt/peer/haiku/HaikuGraphicsConfiguration.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuGraphicsDevice.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuGraphicsEnvironment.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuInputMethods.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuLabelPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuListPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuMenuBarPeer.java
@@ -104,12 +123,15 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 gnu/java/awt/peer/haiku/HaikuNative.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuPanelPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuPopupMenuPeer.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuPrintJob.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuPrinterJob.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuScrollPanePeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuScrollbarPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuSwingPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuSwingWrapper.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuTextFieldPeer.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuToolkit.java
+ create mode 100644 gnu/java/awt/peer/haiku/HaikuTransferable.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuVolatileImage.java
  create mode 100644 gnu/java/awt/peer/haiku/HaikuWindowPeer.java
  create mode 100644 gnu/javax/sound/sampled/haiku/HaikuAudio.java
@@ -191,7 +213,7 @@ index e26a2c2..47a9e11 100644
  native/jni/midi-alsa/Makefile
  native/jni/midi-dssi/Makefile
 diff --git a/gnu/java/awt/font/OpenTypeFontPeer.java b/gnu/java/awt/font/OpenTypeFontPeer.java
-index e812452..116bbc3 100644
+index e812452..7db94ff 100644
 --- a/gnu/java/awt/font/OpenTypeFontPeer.java
 +++ b/gnu/java/awt/font/OpenTypeFontPeer.java
 @@ -38,6 +38,7 @@ exception statement from your version. */
@@ -219,12 +241,32 @@ index e812452..116bbc3 100644
      try
        {
          fontProperties.load(in);
+@@ -290,14 +299,15 @@ public class OpenTypeFontPeer
+ 
+   public boolean canDisplay(Font font, int c)
+   {
+-    // FIXME: Implement this.
+-    throw new UnsupportedOperationException("Not yet implemented");
++    return fontDelegate.getGlyphIndex(c) != fontDelegate.getMissingGlyphCode();
+   }
+ 
+   public int canDisplayUpTo(Font font, CharacterIterator i, int start, int limit)
+   {
+-    // FIXME: Implement this.
+-    throw new UnsupportedOperationException("Not yet implemented");
++    for (char c = i.setIndex(start); i.getIndex() < limit; c = i.next())
++      if (! canDisplay(font, c))
++        return i.getIndex();
++    return -1;
+   }
+ 
+   public String getSubFamilyName(Font font, Locale locale)
 diff --git a/gnu/java/awt/peer/haiku/HaikuButtonPeer.java b/gnu/java/awt/peer/haiku/HaikuButtonPeer.java
 new file mode 100644
-index 0000000..7b7ecb8
+index 0000000..99775ea
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuButtonPeer.java
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,97 @@
 +/* HaikuButtonPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -283,6 +325,7 @@ index 0000000..7b7ecb8
 + */
 +public class HaikuButtonPeer
 +  extends SwingButtonPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  HaikuButtonPeer(final Button b)
@@ -309,6 +352,16 @@ index 0000000..7b7ecb8
 +  {
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
++  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuCheckboxMenuItemPeer.java b/gnu/java/awt/peer/haiku/HaikuCheckboxMenuItemPeer.java
@@ -405,10 +458,10 @@ index 0000000..a23ae3b
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuCheckboxPeer.java b/gnu/java/awt/peer/haiku/HaikuCheckboxPeer.java
 new file mode 100644
-index 0000000..9c00cb8
+index 0000000..04f20d1
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuCheckboxPeer.java
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,185 @@
 +/* HaikuCheckboxPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -477,6 +530,7 @@ index 0000000..9c00cb8
 + */
 +public class HaikuCheckboxPeer
 +  extends SwingCheckboxPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  /**
@@ -581,6 +635,16 @@ index 0000000..9c00cb8
 +  {
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
++  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuChoicePeer.java b/gnu/java/awt/peer/haiku/HaikuChoicePeer.java
@@ -802,10 +866,10 @@ index 0000000..965c5c0
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuClipboard.java b/gnu/java/awt/peer/haiku/HaikuClipboard.java
 new file mode 100644
-index 0000000..bc5eefe
+index 0000000..f9136a4
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuClipboard.java
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,93 @@
 +/* HaikuClipboard.java -- the Haiku system clipboard
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -847,16 +911,12 @@ index 0000000..bc5eefe
 +
 +import java.awt.datatransfer.Clipboard;
 +import java.awt.datatransfer.ClipboardOwner;
-+import java.awt.datatransfer.DataFlavor;
-+import java.awt.datatransfer.StringSelection;
 +import java.awt.datatransfer.Transferable;
-+import java.awt.datatransfer.UnsupportedFlavorException;
-+import java.io.IOException;
 +
 +/**
-+ * The system clipboard, connected to Haiku's be_clipboard. Text is
-+ * exchanged with other applications as "text/plain" (UTF-8). Other
-+ * contents stay inside this Java application.
++ * The system clipboard, connected to Haiku's be_clipboard. Text, files,
++ * pictures and other MIME data are shared with other applications (see
++ * {@link HaikuTransferable}). Java objects stay inside this application.
 + */
 +final class HaikuClipboard
 +  extends Clipboard
@@ -870,25 +930,20 @@ index 0000000..bc5eefe
 +    super("System");
 +  }
 +
-+  /**
-+   * Takes the text of the native clipboard if another application
-+   * changed it.
-+   */
++  /** Takes the native clipboard if another application changed it. */
 +  private void sync()
 +  {
 +    ClipboardOwner oldOwner = null;
 +    Transferable oldContents = null;
 +    synchronized (this)
 +      {
-+        long now = HaikuNative.clipboardCount();
-+        if (now == count)
++        if (HaikuNative.clipboardCount() == count)
 +          return;
-+        count = now;
-+        String text = HaikuNative.clipboardGetText();
++        count = HaikuNative.clipboardSnapshot();
 +        oldOwner = owner;
 +        oldContents = contents;
 +        owner = null;
-+        contents = text != null ? new StringSelection(text) : null;
++        contents = HaikuTransferable.read(HaikuNative.SRC_CLIPBOARD);
 +      }
 +    if (oldOwner != null)
 +      oldOwner.lostOwnership(this, oldContents);
@@ -897,24 +952,8 @@ index 0000000..bc5eefe
 +  public synchronized void setContents(Transferable t, ClipboardOwner o)
 +  {
 +    super.setContents(t, o);
-+    String text = null;
-+    if (t != null && t.isDataFlavorSupported(DataFlavor.stringFlavor))
-+      {
-+        try
-+          {
-+            text = (String) t.getTransferData(DataFlavor.stringFlavor);
-+          }
-+        catch (UnsupportedFlavorException e)
-+          {
-+            // No text.
-+          }
-+        catch (IOException e)
-+          {
-+            // No text.
-+          }
-+      }
-+    // Other applications see the text, or an empty clipboard.
-+    count = HaikuNative.clipboardSetText(text != null ? text : "");
++    long msg = HaikuTransferable.toMessage(t, HaikuNative.B_MIME_DATA);
++    count = HaikuNative.clipboardPut(msg);
 +  }
 +
 +  /** Also used by getAvailableDataFlavors() and getData(). */
@@ -1009,10 +1048,10 @@ index 0000000..0784952
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuDialogPeer.java b/gnu/java/awt/peer/haiku/HaikuDialogPeer.java
 new file mode 100644
-index 0000000..d24d53f
+index 0000000..7421b8c
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuDialogPeer.java
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,94 @@
 +/* HaikuDialogPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -1057,7 +1096,12 @@ index 0000000..d24d53f
 +import java.awt.peer.DialogPeer;
 +
 +/**
-+ * A Dialog backed by a titled BWindow. Modality is handled by AWT.
++ * A Dialog backed by a titled BWindow.
++ *
++ * GNU Classpath's Dialog.show() only blocks the caller. A shown modal
++ * dialog gets the modal app feel (it stays in front of the other windows
++ * of the application), and the event pump drops input to the windows it
++ * blocks.
 + */
 +public class HaikuDialogPeer
 +  extends HaikuWindowPeer
@@ -1069,17 +1113,621 @@ index 0000000..d24d53f
 +    super(d);
 +  }
 +
++  boolean isModal()
++  {
++    return ((Dialog) getWindow()).isModal();
++  }
++
++  public void show()
++  {
++    if (isModal())
++      {
++        setModalShown(true);
++        HaikuEventPump.get().modalShown(this);
++      }
++    super.show();
++  }
++
++  public void hide()
++  {
++    HaikuEventPump.get().modalHidden(this);
++    setModalShown(false);
++    super.hide();
++  }
++
++  public void dispose()
++  {
++    HaikuEventPump.get().modalHidden(this);
++    super.dispose();
++  }
++
 +  public void setTitle(String title)
 +  {
 +    super.setTitle(title);
 +  }
 +}
+diff --git a/gnu/java/awt/peer/haiku/HaikuDragDrop.java b/gnu/java/awt/peer/haiku/HaikuDragDrop.java
+new file mode 100644
+index 0000000..59fe93c
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuDragDrop.java
+@@ -0,0 +1,570 @@
++/* HaikuDragDrop.java -- drag and drop for the Haiku AWT peer
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Component;
++import java.awt.Container;
++import java.awt.Cursor;
++import java.awt.EventQueue;
++import java.awt.Image;
++import java.awt.Insets;
++import java.awt.Point;
++import java.awt.Window;
++import java.awt.datatransfer.DataFlavor;
++import java.awt.datatransfer.Transferable;
++import java.awt.dnd.DnDConstants;
++import java.awt.dnd.DragSourceContext;
++import java.awt.dnd.DragSourceDropEvent;
++import java.awt.dnd.DropTarget;
++import java.awt.dnd.DropTargetContext;
++import java.awt.dnd.DropTargetDragEvent;
++import java.awt.dnd.DropTargetDropEvent;
++import java.awt.dnd.DropTargetEvent;
++import java.awt.dnd.InvalidDnDOperationException;
++import java.awt.dnd.peer.DragSourceContextPeer;
++import java.awt.dnd.peer.DropTargetContextPeer;
++
++/**
++ * Drag and drop. All drags, also between Java components, go through
++ * Haiku's drag system (BView::DragMessage), so Java can drag to and from
++ * Tracker and other applications.
++ *
++ * A Java drag carries "be:jdnd" (a drag id) and "be:jdnd_vm" (a number
++ * for this VM). When it is dropped on a Java window of the same VM, the
++ * drop target gets the original Transferable and the drag source learns
++ * the result. For drops on other applications the result is not known;
++ * the source is told that the copy succeeded.
++ */
++final class HaikuDragDrop
++{
++
++  private static final int B_SHIFT_KEY = 0x1;
++  private static final int B_CONTROL_KEY = 0x4;
++  private static final int B_OPTION_KEY = 0x40;
++
++  /** Marks the drags of this VM. */
++  static final int VM_TOKEN = (int) (System.currentTimeMillis() ^ 0x5a3c96e1);
++
++  // The drag that this VM started, if any.
++  private static int nextDragId = 1;
++  private static int dragId;
++  private static DragSourceContext dragContext;
++  private static boolean dragFinished = true;
++
++  // The drop target under the mouse.
++  private static DropTarget target;
++  private static Component targetComponent;
++  private static DropContextPeer targetPeer;
++
++  private HaikuDragDrop()
++  {
++  }
++
++  // Drag source.
++
++  static DragSourceContextPeer createDragSourceContextPeer()
++  {
++    return new SourcePeer();
++  }
++
++  private static final class SourcePeer
++    implements DragSourceContextPeer
++  {
++    private Cursor cursor;
++
++    public void startDrag(DragSourceContext context, Cursor c, Image image,
++                          Point offset)
++    {
++      cursor = c;
++      Component comp = context.getComponent();
++      Window w = comp instanceof Window ? (Window) comp
++                 : javax.swing.SwingUtilities.getWindowAncestor(comp);
++      if (w == null || ! (w.getPeer() instanceof HaikuWindowPeer))
++        throw new InvalidDnDOperationException("no Haiku window");
++      HaikuWindowPeer wp = (HaikuWindowPeer) w.getPeer();
++      int id;
++      synchronized (HaikuDragDrop.class)
++        {
++          id = nextDragId++;
++          dragId = id;
++          dragContext = context;
++          dragFinished = false;
++        }
++      Transferable t = context.getTransferable();
++      boolean files = t.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
++      long msg = HaikuTransferable.toMessage(t, files
++                                                ? HaikuNative.B_SIMPLE_DATA
++                                                : HaikuNative.B_MIME_DATA);
++      HaikuNative.msgAddInt(msg, "be:jdnd", id);
++      HaikuNative.msgAddInt(msg, "be:jdnd_vm", VM_TOKEN);
++      HaikuNative.msgAddInt(msg, "be:jdnd_actions",
++                            context.getSourceActions());
++      // The drag origin in native window coordinates.
++      Point p = context.getTrigger().getDragOrigin();
++      Point cs = comp.getLocationOnScreen();
++      Point ws = w.getLocationOnScreen();
++      Insets in = wp.insets();
++      int x = p.x + cs.x - ws.x - in.left;
++      int y = p.y + cs.y - ws.y - in.top;
++      int[] dims = new int[2];
++      int[] argb = image != null ? HaikuTransferable.pixels(image, dims)
++                                 : null;
++      int ox = offset != null ? -offset.x : 0;
++      int oy = offset != null ? -offset.y : 0;
++      HaikuNative.dragStart(wp.handle, msg, x - 16, y - 8, 32, 16, argb,
++                            dims[0], dims[1], ox, oy);
++    }
++
++    public Cursor getCursor()
++    {
++      return cursor;
++    }
++
++    public void setCursor(Cursor c)
++    {
++      cursor = c;
++    }
++
++    public void transferablesFlavorsChanged()
++    {
++      // The data was put in the drag message when the drag started.
++    }
++  }
++
++  /**
++   * Called by the event pump when a mouse button is released. If a drag
++   * of this VM did not end on a Java drop target, it ended elsewhere:
++   * tell the source after a short time.
++   */
++  static void mouseReleased()
++  {
++    final int id;
++    synchronized (HaikuDragDrop.class)
++      {
++        if (dragFinished)
++          return;
++        id = dragId;
++      }
++    Thread t = new Thread("Haiku drag end")
++      {
++        public void run()
++        {
++          // Give a drop on a Java window time to arrive. Thread.sleep()
++          // can return early on Kaffe, so check the clock.
++          long end = System.currentTimeMillis() + 600;
++          long now;
++          while ((now = System.currentTimeMillis()) < end)
++            {
++              try
++                {
++                  Thread.sleep(end - now);
++                }
++              catch (InterruptedException e)
++                {
++                  break;
++                }
++            }
++          DragSourceContext ctx;
++          synchronized (HaikuDragDrop.class)
++            {
++              ctx = dragContext;
++            }
++          int actions = ctx != null ? ctx.getSourceActions() : 0;
++          finishDrag(id, true, (actions & DnDConstants.ACTION_COPY) != 0
++                               ? DnDConstants.ACTION_COPY : actions);
++        }
++      };
++    t.setDaemon(true);
++    t.start();
++  }
++
++  /** Tells the drag source how its drag ended (once). */
++  static void finishDrag(int id, boolean success, int action)
++  {
++    final DragSourceContext ctx;
++    synchronized (HaikuDragDrop.class)
++      {
++        if (dragFinished || id != dragId)
++          return;
++        dragFinished = true;
++        ctx = dragContext;
++        dragContext = null;
++      }
++    if (ctx == null)
++      return;
++    final DragSourceDropEvent e = success
++      ? new DragSourceDropEvent(ctx, action, true)
++      : new DragSourceDropEvent(ctx);
++    EventQueue.invokeLater(new Runnable()
++      {
++        public void run()
++        {
++          ctx.dragDropEnd(e);
++        }
++      });
++  }
++
++  // Drop target.
++
++  /** The drag source context if src holds a drag of this VM. */
++  private static DragSourceContext localContext(int src, int[] idOut)
++  {
++    if (HaikuNative.msgInt(src, "be:jdnd_vm", 0) != VM_TOKEN)
++      return null;
++    int id = HaikuNative.msgInt(src, "be:jdnd", -1);
++    synchronized (HaikuDragDrop.class)
++      {
++        if (id != dragId || dragFinished)
++          return null;
++        idOut[0] = id;
++        return dragContext;
++      }
++  }
++
++  /** The deepest active drop target at window point (x, y). */
++  private static Component targetAt(Window w, int x, int y, Point out)
++  {
++    Component c = w.findComponentAt(x, y);
++    while (c != null)
++      {
++        DropTarget dt = c.getDropTarget();
++        if (dt != null && dt.isActive())
++          break;
++        c = c.getParent();
++      }
++    if (c == null)
++      return null;
++    int tx = x, ty = y;
++    for (Component p = c; p != null && p != w; p = p.getParent())
++      {
++        tx -= p.getX();
++        ty -= p.getY();
++      }
++    out.x = tx;
++    out.y = ty;
++    return c;
++  }
++
++  /** The user's drop action: Ctrl copies, else a move if allowed. */
++  private static int userAction(int mods, int sourceActions)
++  {
++    int a;
++    if ((mods & B_CONTROL_KEY) != 0 && (mods & B_SHIFT_KEY) != 0)
++      a = DnDConstants.ACTION_LINK;
++    else if ((mods & B_CONTROL_KEY) != 0)
++      a = DnDConstants.ACTION_COPY;
++    else if ((sourceActions & DnDConstants.ACTION_MOVE) != 0)
++      a = DnDConstants.ACTION_MOVE;
++    else
++      a = DnDConstants.ACTION_COPY;
++    if ((a & sourceActions) == 0)
++      {
++        if ((sourceActions & DnDConstants.ACTION_COPY) != 0)
++          a = DnDConstants.ACTION_COPY;
++        else if ((sourceActions & DnDConstants.ACTION_MOVE) != 0)
++          a = DnDConstants.ACTION_MOVE;
++        else
++          a = sourceActions & DnDConstants.ACTION_LINK;
++      }
++    return a;
++  }
++
++  /**
++   * Called by the event pump for a drag over a window: x, y are window
++   * coordinates.
++   */
++  static void drag(Window w, int x, int y, int transit, int mods)
++  {
++    if (transit == HaikuNative.DRAG_EXIT)
++      {
++        exitTarget();
++        return;
++      }
++    Point p = new Point();
++    Component c = targetAt(w, x, y, p);
++    if (c != targetComponent)
++      {
++        exitTarget();
++        if (c == null)
++          return;
++        int[] id = new int[1];
++        DragSourceContext local = localContext(HaikuNative.SRC_DRAG, id);
++        int actions = local != null ? local.getSourceActions()
++                                    : DnDConstants.ACTION_COPY;
++        Transferable t = local != null ? local.getTransferable()
++                         : HaikuTransferable.read(HaikuNative.SRC_DRAG);
++        targetComponent = c;
++        target = c.getDropTarget();
++        targetPeer = new DropContextPeer(target, t, local != null, id[0],
++                                         actions);
++        final DropTargetContext dtc = target.getDropTargetContext();
++        dtc.addNotify(targetPeer);
++        final DropTarget dt = target;
++        final DropTargetDragEvent e =
++          dragEvent(dtc, p, userAction(mods, actions), actions);
++        EventQueue.invokeLater(new Runnable()
++          {
++            public void run()
++            {
++              dt.dragEnter(e);
++            }
++          });
++        return;
++      }
++    if (c == null)
++      return;
++    final DropTarget dt = target;
++    final DropTargetDragEvent e =
++      dragEvent(dt.getDropTargetContext(), p,
++                userAction(mods, targetPeer.sourceActions),
++                targetPeer.sourceActions);
++    EventQueue.invokeLater(new Runnable()
++      {
++        public void run()
++        {
++          dt.dragOver(e);
++        }
++      });
++  }
++
++  private static void exitTarget()
++  {
++    if (target == null)
++      return;
++    final DropTarget dt = target;
++    final DropTargetEvent e = new DropTargetEvent(dt.getDropTargetContext());
++    target = null;
++    targetComponent = null;
++    targetPeer = null;
++    EventQueue.invokeLater(new Runnable()
++      {
++        public void run()
++        {
++          dt.dragExit(e);
++        }
++      });
++  }
++
++  /** Called by the event pump for a drop on a window. */
++  static void drop(Window w, int x, int y, int mods)
++  {
++    int[] id = new int[1];
++    DragSourceContext local = localContext(HaikuNative.SRC_DROP, id);
++    Point p = new Point();
++    Component c = targetAt(w, x, y, p);
++    target = null;
++    targetComponent = null;
++    targetPeer = null;
++    if (c == null)
++      {
++        if (local != null)
++          finishDrag(id[0], false, DnDConstants.ACTION_NONE);
++        return;
++      }
++    int actions = local != null ? local.getSourceActions()
++                                : DnDConstants.ACTION_COPY;
++    Transferable t = local != null ? local.getTransferable()
++                     : HaikuTransferable.read(HaikuNative.SRC_DROP);
++    final DropTarget dt = c.getDropTarget();
++    final DropContextPeer peer = new DropContextPeer(dt, t, local != null,
++                                                     id[0], actions);
++    final DropTargetContext dtc = dt.getDropTargetContext();
++    dtc.addNotify(peer);
++    final DropTargetDropEvent e =
++      dropEvent(dtc, p, userAction(mods, actions), actions, local != null);
++    EventQueue.invokeLater(new Runnable()
++      {
++        public void run()
++        {
++          dt.drop(e);
++          peer.dropHandled();
++        }
++      });
++  }
++
++  /**
++   * GNU Classpath 0.98's DropTargetDragEvent and DropTargetDropEvent test
++   * the source actions wrongly ("~(actions ^ mask) != 0"); only ~mask
++   * passes. The Classpath patch fixes the test. Without it, the events
++   * are made with ~mask, and the real value is put into the field.
++   */
++  private static final int BAD_MASK =
++    ~(DnDConstants.ACTION_COPY_OR_MOVE | DnDConstants.ACTION_LINK);
++
++  private static void setActions(Object event, String field, int value)
++  {
++    try
++      {
++        java.lang.reflect.Field f = event.getClass().getDeclaredField(field);
++        f.setAccessible(true);
++        f.setInt(event, value);
++      }
++    catch (Exception e)
++      {
++        // The event keeps the odd value; the drop still works.
++      }
++  }
++
++  private static DropTargetDragEvent dragEvent(DropTargetContext dtc,
++                                               Point p, int action,
++                                               int sourceActions)
++  {
++    try
++      {
++        return new DropTargetDragEvent(dtc, p, action, sourceActions);
++      }
++    catch (IllegalArgumentException e)
++      {
++        DropTargetDragEvent ev =
++          new DropTargetDragEvent(dtc, p, action, BAD_MASK);
++        setActions(ev, "srcActions", sourceActions);
++        return ev;
++      }
++  }
++
++  private static DropTargetDropEvent dropEvent(DropTargetContext dtc,
++                                               Point p, int action,
++                                               int sourceActions,
++                                               boolean local)
++  {
++    try
++      {
++        return new DropTargetDropEvent(dtc, p, action, sourceActions, local);
++      }
++    catch (IllegalArgumentException e)
++      {
++        DropTargetDropEvent ev =
++          new DropTargetDropEvent(dtc, p, action, BAD_MASK, local);
++        setActions(ev, "actions", sourceActions);
++        return ev;
++      }
++  }
++
++  /** The drop target side of one drag or drop. */
++  private static final class DropContextPeer
++    implements DropTargetContextPeer
++  {
++    private final DropTarget dropTarget;
++    private final Transferable transferable;
++    private final boolean local;
++    private final int dragId;
++    final int sourceActions;
++    private int targetActions = DnDConstants.ACTION_COPY_OR_MOVE;
++    private int acceptedAction = DnDConstants.ACTION_NONE;
++    private boolean completed;
++
++    DropContextPeer(DropTarget dt, Transferable t, boolean local, int id,
++                    int sourceActions)
++    {
++      dropTarget = dt;
++      targetActions = dt.getDefaultActions();
++      transferable = t;
++      this.local = local;
++      dragId = id;
++      this.sourceActions = sourceActions;
++    }
++
++    public void setTargetActions(int actions)
++    {
++      targetActions = actions;
++    }
++
++    public int getTargetActions()
++    {
++      return targetActions;
++    }
++
++    public DropTarget getDropTarget()
++    {
++      return dropTarget;
++    }
++
++    public DataFlavor[] getTransferDataFlavors()
++    {
++      return transferable != null ? transferable.getTransferDataFlavors()
++                                  : new DataFlavor[0];
++    }
++
++    public Transferable getTransferable()
++    {
++      if (transferable == null)
++        throw new InvalidDnDOperationException("no data");
++      return transferable;
++    }
++
++    public boolean isTransferableJVMLocal()
++    {
++      return local;
++    }
++
++    public void acceptDrag(int action)
++    {
++      // The drag picture does not change.
++    }
++
++    public void rejectDrag()
++    {
++    }
++
++    public void acceptDrop(int action)
++    {
++      acceptedAction = action;
++    }
++
++    public void rejectDrop()
++    {
++      acceptedAction = DnDConstants.ACTION_NONE;
++    }
++
++    public void dropComplete(boolean success)
++    {
++      completed = true;
++      if (local)
++        finishDrag(dragId, success, success ? acceptedAction
++                                            : DnDConstants.ACTION_NONE);
++    }
++
++    /** After drop(): a listener that never called dropComplete. */
++    void dropHandled()
++    {
++      if (! completed && local)
++        finishDrag(dragId, acceptedAction != DnDConstants.ACTION_NONE,
++                   acceptedAction);
++    }
++  }
++}
 diff --git a/gnu/java/awt/peer/haiku/HaikuEventPump.java b/gnu/java/awt/peer/haiku/HaikuEventPump.java
 new file mode 100644
-index 0000000..0e1dd1d
+index 0000000..da68df1
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuEventPump.java
-@@ -0,0 +1,672 @@
+@@ -0,0 +1,758 @@
 +/* HaikuEventPump.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -1238,6 +1886,64 @@ index 0000000..0e1dd1d
 +    return windows.get(new Integer(id));
 +  }
 +
++  /** Shown modal dialogs, the newest last. */
++  private final ArrayList<HaikuDialogPeer> modals =
++    new ArrayList<HaikuDialogPeer>();
++
++  synchronized void modalShown(HaikuDialogPeer p)
++  {
++    modals.remove(p);
++    modals.add(p);
++  }
++
++  synchronized void modalHidden(HaikuDialogPeer p)
++  {
++    modals.remove(p);
++  }
++
++  /**
++   * The modal dialog that blocks input to w, or null. A modal dialog
++   * blocks every window except itself and the windows it owns.
++   */
++  private HaikuDialogPeer blocker(Window w)
++  {
++    HaikuDialogPeer top;
++    synchronized (this)
++      {
++        if (modals.isEmpty())
++          return null;
++        top = modals.get(modals.size() - 1);
++      }
++    Window m = top.getWindow();
++    for (Window x = w; x != null; x = x.getOwner())
++      if (x == m)
++        return null;
++    return top;
++  }
++
++  /** Event types that are user input to a window. */
++  private static boolean isInput(int type)
++  {
++    switch (type)
++      {
++      case HaikuNative.EV_CLOSE:
++      case HaikuNative.EV_MOUSE_DOWN:
++      case HaikuNative.EV_MOUSE_UP:
++      case HaikuNative.EV_MOUSE_MOVED:
++      case HaikuNative.EV_MOUSE_ENTER:
++      case HaikuNative.EV_MOUSE_EXIT:
++      case HaikuNative.EV_KEY_DOWN:
++      case HaikuNative.EV_KEY_UP:
++      case HaikuNative.EV_WHEEL:
++      case HaikuNative.EV_EDIT:
++      case HaikuNative.EV_DROP:
++      case HaikuNative.EV_IM:
++        return true;
++      default:
++        return false;
++      }
++  }
++
 +  public void run()
 +  {
 +    int[] ev = new int[HaikuNative.EV_INTS];
@@ -1310,6 +2016,19 @@ index 0000000..0e1dd1d
 +    Insets in = peer.insets();
 +    long when = System.currentTimeMillis();
 +
++    if (isInput(type))
++      {
++        HaikuDialogPeer b = blocker(w);
++        if (b != null)
++          {
++            // A click on a blocked window brings the modal dialog forward.
++            if (type == HaikuNative.EV_MOUSE_DOWN
++                || type == HaikuNative.EV_CLOSE)
++              b.toFront();
++            return;
++          }
++      }
++
 +    switch (type)
 +      {
 +      case HaikuNative.EV_FILE_PANEL:
@@ -1329,6 +2048,20 @@ index 0000000..0e1dd1d
 +
 +      case HaikuNative.EV_EDIT:
 +        edit(w, ev[2], when);
++        break;
++
++      case HaikuNative.EV_DRAG:
++        if (blocker(w) == null || ev[4] == HaikuNative.DRAG_EXIT)
++          HaikuDragDrop.drag(w, ev[2] + in.left, ev[3] + in.top, ev[4],
++                             ev[5]);
++        break;
++
++      case HaikuNative.EV_DROP:
++        HaikuDragDrop.drop(w, ev[2] + in.left, ev[3] + in.top, ev[5]);
++        break;
++
++      case HaikuNative.EV_IM:
++        HaikuInputMethods.event(peer, w, ev[2], ev[3] != 0, ev[4], ev[5]);
 +        break;
 +
 +      case HaikuNative.EV_CLOSE:
@@ -1376,6 +2109,7 @@ index 0000000..0e1dd1d
 +
 +      case HaikuNative.EV_MOUSE_UP:
 +        mouseUp(w, ev[2] + in.left, ev[3] + in.top, ev[4], ev[5], when);
++        HaikuDragDrop.mouseReleased();
 +        break;
 +
 +      case HaikuNative.EV_MOUSE_MOVED:
@@ -2141,10 +2875,10 @@ index 0000000..11f0946
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuGraphics2D.java b/gnu/java/awt/peer/haiku/HaikuGraphics2D.java
 new file mode 100644
-index 0000000..0f90e61
+index 0000000..9dad5b9
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuGraphics2D.java
-@@ -0,0 +1,732 @@
+@@ -0,0 +1,847 @@
 +/* HaikuGraphics2D.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -2847,6 +3581,121 @@ index 0000000..0f90e61
 +    markDirty(dst.x, dst.y, dst.width, dst.height);
 +  }
 +
++  // Text with characters that the font cannot show.
++
++  public void drawString(String text, int x, int y)
++  {
++    if (! drawWithFallback(text, x, y))
++      super.drawString(text, x, y);
++  }
++
++  public void drawString(String text, float x, float y)
++  {
++    if (! drawWithFallback(text, x, y))
++      super.drawString(text, x, y);
++  }
++
++  /**
++   * Draws text whose font lacks some glyphs: the runs the font has are
++   * drawn as usual, the others with Haiku's fonts (HaikuNative.textRender)
++   * in the current colour.
++   *
++   * @return false if the font has all glyphs, or the fallback cannot be
++   *         used (no direct pixels, rotated text, a paint that is not a
++   *         colour); the caller then draws normally
++   */
++  private boolean drawWithFallback(String text, float x, float y)
++  {
++    if (text == null || text.length() == 0 || pixels == null
++        || ! (getPaint() instanceof Color))
++      return false;
++    java.awt.Font f = getFont();
++    java.awt.font.FontRenderContext frc = getFontRenderContext();
++    java.awt.font.GlyphVector gv = f.createGlyphVector(frc, text);
++    int n = text.length();
++    if (gv.getNumGlyphs() != n)
++      return false;
++    boolean[] has = new boolean[n];
++    boolean missing = false;
++    for (int i = 0; i < n; i++)
++      {
++        has[i] = gv.getGlyphCode(i) != 0 || text.charAt(i) < ' ';
++        missing |= ! has[i];
++      }
++    if (! missing)
++      return false;
++    java.awt.geom.AffineTransform t = getTransform();
++    if ((t.getType() & (java.awt.geom.AffineTransform.TYPE_GENERAL_ROTATION
++                        | java.awt.geom.AffineTransform.TYPE_QUADRANT_ROTATION
++                        | java.awt.geom.AffineTransform.TYPE_FLIP
++                        | java.awt.geom.AffineTransform.TYPE_GENERAL_TRANSFORM))
++        != 0)
++      return false;
++    double sx = t.getScaleX();
++    double sy = t.getScaleY();
++    float cx = x;
++    int i = 0;
++    while (i < n)
++      {
++        int j = i + 1;
++        while (j < n && has[j] == has[i])
++          j++;
++        String run = text.substring(i, j);
++        if (has[i])
++          {
++            super.drawString(run, cx, y);
++            cx += (float) f.getStringBounds(run, frc).getWidth();
++          }
++        else
++          {
++            int[] dims = new int[3];
++            int[] cover = HaikuNative.textRender(run, (float) (f.getSize2D() * sy),
++                                                 f.isBold(), f.isItalic(), dims);
++            if (cover != null)
++              {
++                int dx = (int) Math.round(t.getTranslateX() + sx * cx);
++                int dy = (int) Math.round(t.getTranslateY() + sy * y) - dims[2];
++                blendCoverage(cover, dims[0], dims[1], dx, dy);
++                cx += dims[0] / sx;
++              }
++          }
++        i = j;
++      }
++    return true;
++  }
++
++  /** Blends the current colour through a coverage mask at (dx, dy). */
++  private void blendCoverage(int[] cover, int w, int h, int dx, int dy)
++  {
++    Color c = (Color) getPaint();
++    int rgb = c.getRGB();
++    int ca = c.getAlpha();
++    int cr = (rgb >> 16) & 0xff, cg = (rgb >> 8) & 0xff, cb = rgb & 0xff;
++    Rectangle area = new Rectangle(0, 0, image.getWidth(), image.getHeight());
++    java.awt.Shape clip = getClip();
++    if (clip != null)
++      area = area.intersection(getTransform().createTransformedShape(clip)
++                               .getBounds());
++    area = area.intersection(new Rectangle(dx, dy, w, h));
++    if (area.isEmpty())
++      return;
++    for (int yy = area.y; yy < area.y + area.height; yy++)
++      for (int xx = area.x; xx < area.x + area.width; xx++)
++        {
++          int a = cover[(yy - dy) * w + (xx - dx)] * ca / 255;
++          if (a == 0)
++            continue;
++          int k = yy * scan + xx;
++          int d = pixels[k];
++          int r = (cr * a + ((d >> 16) & 0xff) * (255 - a)) / 255;
++          int g = (cg * a + ((d >> 8) & 0xff) * (255 - a)) / 255;
++          int b = (cb * a + (d & 0xff) * (255 - a)) / 255;
++          int al = hasAlpha ? a + (((d >>> 24) * (255 - a)) / 255) : 0xff;
++          pixels[k] = (al << 24) | (r << 16) | (g << 8) | b;
++        }
++    markDirty(area.x, area.y, area.width, area.height);
++  }
++
 +  public Graphics create()
 +  {
 +    HaikuGraphics2D copy = (HaikuGraphics2D) super.create();
@@ -3201,12 +4050,256 @@ index 0000000..992d4ec
 +    return OpenTypeFontPeer.getAvailableFontFamilyNames(l);
 +  }
 +}
+diff --git a/gnu/java/awt/peer/haiku/HaikuInputMethods.java b/gnu/java/awt/peer/haiku/HaikuInputMethods.java
+new file mode 100644
+index 0000000..15626cb
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuInputMethods.java
+@@ -0,0 +1,238 @@
++/* HaikuInputMethods.java -- Haiku input methods for AWT
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Component;
++import java.awt.FontMetrics;
++import java.awt.KeyboardFocusManager;
++import java.awt.Point;
++import java.awt.Rectangle;
++import java.awt.Toolkit;
++import java.awt.Window;
++import java.awt.event.InputMethodEvent;
++import java.awt.event.KeyEvent;
++import java.awt.font.TextAttribute;
++import java.awt.font.TextHitInfo;
++import java.awt.im.InputMethodHighlight;
++import java.awt.im.InputMethodRequests;
++import java.text.AttributedString;
++
++import javax.swing.text.JTextComponent;
++
++/**
++ * Connects Haiku input methods (B_INPUT_METHOD_EVENT) to AWT.
++ *
++ * Components with InputMethodRequests get InputMethodEvents with the
++ * composed text inline. Other components (all of GNU Classpath's Swing
++ * text components) get the confirmed text as KEY_TYPED events, and the
++ * composed text is shown in a small window below the caret.
++ */
++final class HaikuInputMethods
++{
++
++  private HaikuInputMethods()
++  {
++  }
++
++  private static void post(java.awt.AWTEvent e)
++  {
++    Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(e);
++  }
++
++  private static Component focusOwner(Window w)
++  {
++    Component c = KeyboardFocusManager.getCurrentKeyboardFocusManager()
++                  .getFocusOwner();
++    return c != null ? c : w;
++  }
++
++  /**
++   * The caret of a component in screen coordinates. For text components
++   * this is the caret rectangle; else the bottom left corner.
++   */
++  static Rectangle caret(Component c)
++  {
++    JTextComponent text = null;
++    if (c instanceof JTextComponent)
++      text = (JTextComponent) c;
++    else if (c.getPeer() instanceof HaikuTextFieldPeer)
++      text = ((HaikuTextFieldPeer) c.getPeer()).textComponent();
++    Point origin;
++    try
++      {
++        origin = c.getLocationOnScreen();
++      }
++    catch (Exception e)
++      {
++        return new Rectangle(0, 0, 1, 16);
++      }
++    if (text != null)
++      {
++        try
++          {
++            Rectangle r = text.modelToView(text.getCaretPosition());
++            if (r != null)
++              {
++                // An AWT text field draws its Swing field at its own origin.
++                return new Rectangle(origin.x + r.x, origin.y + r.y,
++                                     Math.max(r.width, 1), r.height);
++              }
++          }
++        catch (Exception e)
++          {
++            // Use the component corner.
++          }
++      }
++    int h = 16;
++    if (c.getFont() != null)
++      {
++        FontMetrics fm = c.getFontMetrics(c.getFont());
++        if (fm != null)
++          h = fm.getHeight();
++      }
++    return new Rectangle(origin.x + 2, origin.y + Math.max(0, c.getHeight() - h),
++                         1, h);
++  }
++
++  /** Called by the event pump for EV_IM. */
++  static void event(HaikuWindowPeer peer, Window w, int opcode,
++                    boolean confirmed, int selStart, int selEnd)
++  {
++    Component c = focusOwner(w);
++    InputMethodRequests req = c.getInputMethodRequests();
++    switch (opcode)
++      {
++      case HaikuNative.B_INPUT_METHOD_CHANGED:
++        changed(peer, w, c, req, HaikuNative.imText(peer.id), confirmed,
++                selStart, selEnd);
++        break;
++      case HaikuNative.B_INPUT_METHOD_LOCATION_REQUEST:
++        locationRequest(peer, c, req, HaikuNative.imText(peer.id));
++        break;
++      case HaikuNative.B_INPUT_METHOD_STOPPED:
++        HaikuNative.imShowComposition(null, 0, 0, 0, 0);
++        if (req != null)
++          post(new InputMethodEvent(c, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
++                                    new AttributedString("").getIterator(),
++                                    0, null, null));
++        break;
++      default:
++        break;
++      }
++  }
++
++  private static void changed(HaikuWindowPeer peer, Window w, Component c,
++                              InputMethodRequests req, String text,
++                              boolean confirmed, int selStart, int selEnd)
++  {
++    if (confirmed)
++      {
++        HaikuNative.imShowComposition(null, 0, 0, 0, 0);
++        if (req != null)
++          {
++            post(new InputMethodEvent(c, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
++                                      new AttributedString(text).getIterator(),
++                                      text.length(), null, null));
++            return;
++          }
++        long when = System.currentTimeMillis();
++        for (int i = 0; i < text.length(); i++)
++          post(new KeyEvent(w, KeyEvent.KEY_TYPED, when, 0,
++                            KeyEvent.VK_UNDEFINED, text.charAt(i)));
++        return;
++      }
++    if (req != null)
++      {
++        AttributedString as = new AttributedString(text);
++        if (text.length() > 0)
++          {
++            as.addAttribute(TextAttribute.INPUT_METHOD_HIGHLIGHT,
++                            InputMethodHighlight.UNSELECTED_RAW_TEXT_HIGHLIGHT);
++            if (selEnd > selStart)
++              as.addAttribute(TextAttribute.INPUT_METHOD_HIGHLIGHT,
++                              InputMethodHighlight.SELECTED_RAW_TEXT_HIGHLIGHT,
++                              selStart, selEnd);
++          }
++        post(new InputMethodEvent(c, InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
++                                  as.getIterator(), 0,
++                                  TextHitInfo.leading(selEnd), null));
++        return;
++      }
++    Rectangle r = caret(c);
++    HaikuNative.imShowComposition(text, r.x, r.y + r.height + 2, selStart,
++                                  selEnd);
++  }
++
++  /** Tells the input method where each composed character is. */
++  private static void locationRequest(HaikuWindowPeer peer, Component c,
++                                      InputMethodRequests req, String text)
++  {
++    int n = Math.max(1, text.length());
++    int[] xs = new int[n];
++    int[] ys = new int[n];
++    float height;
++    if (req != null)
++      {
++        Rectangle r = null;
++        for (int i = 0; i < n; i++)
++          {
++            r = req.getTextLocation(TextHitInfo.leading(i));
++            xs[i] = r.x;
++            ys[i] = r.y;
++          }
++        height = r != null ? r.height : 16;
++      }
++    else
++      {
++        // The composed text is in the composition window below the caret.
++        Rectangle r = caret(c);
++        FontMetrics fm = c.getFont() != null
++                         ? c.getFontMetrics(c.getFont()) : null;
++        int x = r.x;
++        for (int i = 0; i < n; i++)
++          {
++            xs[i] = x + 4;
++            ys[i] = r.y + r.height + 2;
++            x += fm != null && i < text.length() ? fm.charWidth(text.charAt(i))
++                                                 : 8;
++          }
++        height = r.height;
++      }
++    HaikuNative.imLocationReply(peer.handle, xs, ys, height);
++  }
++}
 diff --git a/gnu/java/awt/peer/haiku/HaikuLabelPeer.java b/gnu/java/awt/peer/haiku/HaikuLabelPeer.java
 new file mode 100644
-index 0000000..e4890a6
+index 0000000..456acf1
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuLabelPeer.java
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,109 @@
 +/* HaikuLabelPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -3260,6 +4353,7 @@ index 0000000..e4890a6
 + */
 +public class HaikuLabelPeer
 +  extends SwingLabelPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  HaikuLabelPeer(Label label)
@@ -3303,6 +4397,16 @@ index 0000000..e4890a6
 +  {
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
++  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuListPeer.java b/gnu/java/awt/peer/haiku/HaikuListPeer.java
@@ -4029,10 +5133,10 @@ index 0000000..d96f7c0
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuNative.java b/gnu/java/awt/peer/haiku/HaikuNative.java
 new file mode 100644
-index 0000000..c245b29
+index 0000000..21dd958
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuNative.java
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,338 @@
 +/* HaikuNative.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -4102,6 +5206,34 @@ index 0000000..c245b29
 +  static final int EV_STATE = 17;
 +  static final int EV_EDIT = 18;
 +  static final int EV_FILTER = 19;
++  static final int EV_DRAG = 20;
++  static final int EV_DROP = 21;
++  static final int EV_IM = 22;
++
++  // Transits of EV_DRAG.
++  static final int DRAG_ENTER = 1;
++  static final int DRAG_OVER = 2;
++  static final int DRAG_EXIT = 3;
++
++  // Message sources for msgTypes() and the other msg readers.
++  static final int SRC_CLIPBOARD = 0;
++  static final int SRC_DRAG = 1;
++  static final int SRC_DROP = 2;
++
++  // Message codes (AppDefs.h).
++  static final int B_SIMPLE_DATA = 0x44415441; // 'DATA'
++  static final int B_MIME_DATA = 0x4d494d45;   // 'MIME'
++
++  // Input method opcodes (Input.h).
++  static final int B_INPUT_METHOD_STARTED = 0;
++  static final int B_INPUT_METHOD_STOPPED = 1;
++  static final int B_INPUT_METHOD_CHANGED = 2;
++  static final int B_INPUT_METHOD_LOCATION_REQUEST = 3;
++
++  // Window feels (Window.h).
++  static final int B_NORMAL_WINDOW_FEEL = 0;
++  static final int B_MODAL_APP_WINDOW_FEEL = 1;
++  static final int B_FLOATING_ALL_WINDOW_FEEL = 6;
 +
 +  // Commands of EV_EDIT (the Command-X/C/V/A shortcuts of a window).
 +  static final int EDIT_CUT = 1;
@@ -4254,22 +5386,101 @@ index 0000000..c245b29
 +  static native long cursorCreate(int[] pixels, int w, int h, int hotX,
 +                                  int hotY);
 +
-+  // System clipboard (text only).
++  static native void setFeel(long window, int feel);
 +
-+  /** Returns the new clipboard count. */
-+  static native long clipboardSetText(String text);
++  // Messages for the clipboard and drag and drop.
 +
-+  static native String clipboardGetText();
++  static native long msgNew(int what);
++
++  static native void msgDelete(long msg);
++
++  static native void msgAddData(long msg, String mime, byte[] data);
++
++  static native void msgAddInt(long msg, String name, int value);
++
++  /** Adds a picture as an archived bitmap and as PNG. */
++  static native void msgAddImage(long msg, int[] argb, int w, int h);
++
++  /** Adds files as entry_refs ("refs"). */
++  static native void msgAddFiles(long msg, String[] paths);
 +
 +  /** Changes each time any application writes to the clipboard. */
 +  static native long clipboardCount();
++
++  /** Replaces the clipboard with msg (deleted). Returns the new count. */
++  static native long clipboardPut(long msg);
++
++  /** Copies the clipboard into SRC_CLIPBOARD. Returns the count. */
++  static native long clipboardSnapshot();
++
++  static native int msgGeneration(int src);
++
++  /** MIME types, "refs" and archived bitmap names in a source. */
++  static native String[] msgTypes(int src);
++
++  static native byte[] msgData(int src, String mime);
++
++  /** The picture in a source as ARGB pixels; dims = width, height. */
++  static native int[] msgImage(int src, int[] dims);
++
++  static native String[] msgFiles(int src);
++
++  static native int msgInt(int src, String name, int def);
++
++  /**
++   * Drags msg (deleted) from a window: with the picture (mouse at offX,
++   * offY in it) or else the rectangle (x, y, w, h).
++   */
++  static native void dragStart(long window, long msg, int x, int y, int w,
++                               int h, int[] argb, int iw, int ih, int offX,
++                               int offY);
++
++  // Printing.
++
++  /** Returns 0 if the user cancelled a dialog. */
++  static native long printCreate(String name, boolean pageDialog,
++                                 boolean jobDialog);
++
++  /** page: the page setup dialog, else the print dialog. */
++  static native boolean printDialog(long job, boolean page);
++
++  /**
++   * out = paper l, t, r, b, printable l, t, r, b (points), first page,
++   * last page, x dpi, y dpi.
++   */
++  static native void printInfo(long job, float[] out);
++
++  static native boolean printBegin(long job);
++
++  /** One page of w x h ARGB pixels that fill the printable area. */
++  static native boolean printPage(long job, int[] argb, int w, int h);
++
++  static native void printEnd(long job, boolean commit);
++
++  // Input methods.
++
++  static native String imText(int windowId);
++
++  static native void imLocationReply(long window, int[] xs, int[] ys,
++                                     float height);
++
++  /**
++   * Draws text with Haiku's fonts. Returns its coverage (0..255) per
++   * pixel; dims = width, height, ascent.
++   */
++  static native int[] textRender(String text, float size, boolean bold,
++                                 boolean italic, int[] dims);
++
++  /** Shows composing text near (x, y) on the screen; null hides it. */
++  static native void imShowComposition(String text, int x, int y,
++                                       int selStart, int selEnd);
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuPanelPeer.java b/gnu/java/awt/peer/haiku/HaikuPanelPeer.java
 new file mode 100644
-index 0000000..8cf083f
+index 0000000..e6f117f
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuPanelPeer.java
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,106 @@
 +/* HaikuPanelPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -4324,6 +5535,7 @@ index 0000000..8cf083f
 + */
 +public class HaikuPanelPeer
 +  extends SwingPanelPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  HaikuPanelPeer(Panel panel)
@@ -4363,6 +5575,16 @@ index 0000000..8cf083f
 +  {
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
++  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuPopupMenuPeer.java b/gnu/java/awt/peer/haiku/HaikuPopupMenuPeer.java
@@ -4444,12 +5666,480 @@ index 0000000..a576d8b
 +      show((Component) e.target, e.x, e.y);
 +  }
 +}
+diff --git a/gnu/java/awt/peer/haiku/HaikuPrintJob.java b/gnu/java/awt/peer/haiku/HaikuPrintJob.java
+new file mode 100644
+index 0000000..71de7b6
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuPrintJob.java
+@@ -0,0 +1,214 @@
++/* HaikuPrintJob.java -- AWT 1.1 printing with BPrintJob
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Color;
++import java.awt.Dimension;
++import java.awt.Graphics;
++import java.awt.Graphics2D;
++import java.awt.PrintGraphics;
++import java.awt.PrintJob;
++import java.awt.image.BufferedImage;
++
++/**
++ * An AWT print job (Toolkit.getPrintJob()). The page setup and print
++ * dialogs are Haiku's. Each page is drawn in Java into a picture of the
++ * printable area and then spooled with BPrintJob. Page coordinates are
++ * points (1/72 inch) from the top left of the printable area.
++ */
++final class HaikuPrintJob
++  extends PrintJob
++{
++
++  /** The most dots per inch used for page pictures. */
++  static final int MAX_DPI = 150;
++
++  private long job;
++
++  /** Printable area in points. */
++  private final int width, height;
++
++  /** Picture dots per point. */
++  private final double scale;
++
++  private PageGraphics page;
++
++  private boolean begun;
++
++  private HaikuPrintJob(long job)
++  {
++    this.job = job;
++    float[] info = new float[12];
++    HaikuNative.printInfo(job, info);
++    width = Math.max(1, Math.round(info[6] - info[4]));
++    height = Math.max(1, Math.round(info[7] - info[5]));
++    scale = pictureScale(info[10], info[11]);
++  }
++
++  /** Shows the dialogs; null if the user cancelled. */
++  static HaikuPrintJob create(String title)
++  {
++    HaikuNative.ensureInitialized();
++    long job = HaikuNative.printCreate(title, true, true);
++    return job != 0 ? new HaikuPrintJob(job) : null;
++  }
++
++  static double pictureScale(float xdpi, float ydpi)
++  {
++    float dpi = Math.min(Math.max(xdpi, ydpi), MAX_DPI);
++    return Math.max(dpi, 72) / 72.0;
++  }
++
++  /** A white page picture for an area of w x h points. */
++  static BufferedImage newPage(int w, int h, double scale)
++  {
++    BufferedImage img = new BufferedImage((int) Math.ceil(w * scale),
++                                          (int) Math.ceil(h * scale),
++                                          BufferedImage.TYPE_INT_RGB);
++    Graphics2D g = img.createGraphics();
++    g.setColor(Color.white);
++    g.fillRect(0, 0, img.getWidth(), img.getHeight());
++    g.dispose();
++    return img;
++  }
++
++  /** Spools a page picture. */
++  static boolean spool(long job, BufferedImage img)
++  {
++    int w = img.getWidth();
++    int h = img.getHeight();
++    return HaikuNative.printPage(job, img.getRGB(0, 0, w, h, null, 0, w),
++                                 w, h);
++  }
++
++  /** Starts a new page; the graphics finish the page when disposed. */
++  public synchronized Graphics getGraphics()
++  {
++    if (job == 0)
++      return null;
++    if (page != null)
++      page.dispose();
++    if (! begun)
++      {
++        begun = true;
++        HaikuNative.printBegin(job);
++      }
++    BufferedImage img = newPage(width, height, scale);
++    page = new PageGraphics(img, this);
++    page.scale(scale, scale);
++    page.setColor(Color.black);
++    page.setBackground(Color.white);
++    return page;
++  }
++
++  synchronized void pageDone(PageGraphics g)
++  {
++    if (g != page || job == 0)
++      return;
++    page = null;
++    spool(job, g.image());
++  }
++
++  public Dimension getPageDimension()
++  {
++    return new Dimension(width, height);
++  }
++
++  public int getPageResolution()
++  {
++    return 72;
++  }
++
++  public boolean lastPageFirst()
++  {
++    return false;
++  }
++
++  /** Prints the pages. */
++  public synchronized void end()
++  {
++    if (job == 0)
++      return;
++    if (page != null)
++      page.dispose();
++    long j = job;
++    job = 0;
++    HaikuNative.printEnd(j, begun);
++  }
++
++  /** The graphics of one page. */
++  static final class PageGraphics
++    extends HaikuGraphics2D
++    implements PrintGraphics
++  {
++    private final HaikuPrintJob printJob;
++    private final BufferedImage img;
++    private boolean root = true;
++
++    PageGraphics(BufferedImage img, HaikuPrintJob job)
++    {
++      super(img, null);
++      this.img = img;
++      printJob = job;
++    }
++
++    BufferedImage image()
++    {
++      return img;
++    }
++
++    public PrintJob getPrintJob()
++    {
++      return printJob;
++    }
++
++    public Graphics create()
++    {
++      PageGraphics copy = (PageGraphics) super.create();
++      copy.root = false;
++      return copy;
++    }
++
++    public void dispose()
++    {
++      super.dispose();
++      if (root)
++        printJob.pageDone(this);
++    }
++  }
++}
+diff --git a/gnu/java/awt/peer/haiku/HaikuPrinterJob.java b/gnu/java/awt/peer/haiku/HaikuPrinterJob.java
+new file mode 100644
+index 0000000..b104930
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuPrinterJob.java
+@@ -0,0 +1,242 @@
++/* HaikuPrinterJob.java -- Java 2 printing with BPrintJob
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Graphics2D;
++import java.awt.image.BufferedImage;
++import java.awt.print.PageFormat;
++import java.awt.print.Pageable;
++import java.awt.print.Paper;
++import java.awt.print.Printable;
++import java.awt.print.PrinterException;
++import java.awt.print.PrinterJob;
++
++/**
++ * A java.awt.print.PrinterJob that prints with Haiku's print server.
++ * PrinterJob.getPrinterJob() returns it when the system property
++ * java.awt.printerjob names this class (the Haiku toolkit sets it).
++ */
++public class HaikuPrinterJob
++  extends PrinterJob
++{
++
++  private long job;
++
++  private Printable printable;
++
++  private PageFormat format;
++
++  private Pageable pageable;
++
++  private String jobName = "Java";
++
++  private int copies = 1;
++
++  private volatile boolean cancelled;
++
++  public HaikuPrinterJob()
++  {
++    HaikuNative.ensureInitialized();
++  }
++
++  public int getCopies()
++  {
++    return copies;
++  }
++
++  public void setCopies(int copies)
++  {
++    this.copies = copies;
++  }
++
++  public String getJobName()
++  {
++    return jobName;
++  }
++
++  public void setJobName(String name)
++  {
++    jobName = name;
++  }
++
++  public String getUserName()
++  {
++    return System.getProperty("user.name");
++  }
++
++  public void cancel()
++  {
++    cancelled = true;
++  }
++
++  public boolean isCancelled()
++  {
++    return cancelled;
++  }
++
++  /** The paper of the print job, or US Letter before a dialog. */
++  public PageFormat defaultPage(PageFormat pf)
++  {
++    PageFormat result = (PageFormat) pf.clone();
++    Paper paper = new Paper();
++    if (job != 0)
++      {
++        float[] i = new float[12];
++        HaikuNative.printInfo(job, i);
++        paper.setSize(i[2] - i[0], i[3] - i[1]);
++        paper.setImageableArea(i[4] - i[0], i[5] - i[1], i[6] - i[4],
++                               i[7] - i[5]);
++      }
++    result.setPaper(paper);
++    return result;
++  }
++
++  public PageFormat pageDialog(PageFormat pf)
++  {
++    boolean ok;
++    if (job == 0)
++      {
++        job = HaikuNative.printCreate(jobName, true, false);
++        ok = job != 0;
++      }
++    else
++      ok = HaikuNative.printDialog(job, true);
++    return ok ? defaultPage(pf) : pf;
++  }
++
++  public boolean printDialog()
++  {
++    if (job == 0)
++      {
++        job = HaikuNative.printCreate(jobName, false, true);
++        return job != 0;
++      }
++    return HaikuNative.printDialog(job, false);
++  }
++
++  public void setPageable(Pageable p)
++  {
++    pageable = p;
++    printable = null;
++  }
++
++  public void setPrintable(Printable p)
++  {
++    setPrintable(p, defaultPage());
++  }
++
++  public void setPrintable(Printable p, PageFormat pf)
++  {
++    printable = p;
++    format = pf;
++    pageable = null;
++  }
++
++  public PageFormat validatePage(PageFormat pf)
++  {
++    return (PageFormat) pf.clone();
++  }
++
++  /**
++   * Prints all pages (or the range chosen in the print dialog). Without
++   * a dialog before, the print server's settings are used.
++   */
++  public void print()
++    throws PrinterException
++  {
++    if (printable == null && pageable == null)
++      throw new PrinterException("nothing to print");
++    if (job == 0)
++      job = HaikuNative.printCreate(jobName, false, false);
++    if (job == 0)
++      throw new PrinterException("cannot start a print job");
++    cancelled = false;
++    float[] info = new float[12];
++    HaikuNative.printInfo(job, info);
++    int first = Math.max(1, (int) info[8]);
++    int last = (int) info[9];
++    if (last < first || last > 9999)
++      last = Integer.MAX_VALUE;
++    int w = Math.max(1, Math.round(info[6] - info[4]));
++    int h = Math.max(1, Math.round(info[7] - info[5]));
++    double scale = HaikuPrintJob.pictureScale(info[10], info[11]);
++    boolean ok = HaikuNative.printBegin(job);
++    if (! ok)
++      {
++        HaikuNative.printEnd(job, false);
++        job = 0;
++        throw new PrinterException("the print server refused the job");
++      }
++    try
++      {
++        int count = pageable != null ? pageable.getNumberOfPages()
++                                     : Integer.MAX_VALUE;
++        for (int index = 0; ok && ! cancelled && index < count
++                            && index + 1 <= last; index++)
++          {
++            Printable p = pageable != null ? pageable.getPrintable(index)
++                                           : printable;
++            PageFormat pf = pageable != null ? pageable.getPageFormat(index)
++                                             : format;
++            if (pf == null)
++              pf = defaultPage();
++            BufferedImage img = HaikuPrintJob.newPage(w, h, scale);
++            Graphics2D g = img.createGraphics();
++            g.scale(scale, scale);
++            // Page coordinates start at the paper corner.
++            g.translate(-(info[4] - info[0]), -(info[5] - info[1]));
++            g.setColor(java.awt.Color.black);
++            g.setBackground(java.awt.Color.white);
++            int r = p.print(g, pf, index);
++            g.dispose();
++            if (r == Printable.NO_SUCH_PAGE)
++              break;
++            if (index + 1 >= first)
++              ok = HaikuPrintJob.spool(job, img);
++          }
++      }
++    finally
++      {
++        long j = job;
++        job = 0;
++        HaikuNative.printEnd(j, ok && ! cancelled);
++      }
++    if (! ok)
++      throw new PrinterException("printing failed");
++  }
++}
 diff --git a/gnu/java/awt/peer/haiku/HaikuScrollPanePeer.java b/gnu/java/awt/peer/haiku/HaikuScrollPanePeer.java
 new file mode 100644
-index 0000000..12dd983
+index 0000000..4d352e6
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuScrollPanePeer.java
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,335 @@
 +/* HaikuScrollPanePeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -4516,7 +6206,7 @@ index 0000000..12dd983
 + */
 +public class HaikuScrollPanePeer
 +  extends SwingContainerPeer
-+  implements ScrollPanePeer
++  implements ScrollPanePeer, java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  private final ScrollPane sp;
@@ -4774,6 +6464,16 @@ index 0000000..12dd983
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
 +  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuScrollbarPeer.java b/gnu/java/awt/peer/haiku/HaikuScrollbarPeer.java
 new file mode 100644
@@ -4913,10 +6613,10 @@ index 0000000..6c025b7
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuSwingPeer.java b/gnu/java/awt/peer/haiku/HaikuSwingPeer.java
 new file mode 100644
-index 0000000..b0e5f03
+index 0000000..91a59d9
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuSwingPeer.java
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,126 @@
 +/* HaikuSwingPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -4970,6 +6670,7 @@ index 0000000..b0e5f03
 + */
 +class HaikuSwingPeer
 +  extends SwingComponentPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  HaikuSwingWrapper wrapper;
@@ -5030,6 +6731,16 @@ index 0000000..b0e5f03
 +  {
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
++  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuSwingWrapper.java b/gnu/java/awt/peer/haiku/HaikuSwingWrapper.java
@@ -5294,10 +7005,10 @@ index 0000000..7160cea
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuTextFieldPeer.java b/gnu/java/awt/peer/haiku/HaikuTextFieldPeer.java
 new file mode 100644
-index 0000000..fe48359
+index 0000000..9b2b191
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuTextFieldPeer.java
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,107 @@
 +/* HaikuTextFieldPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -5353,6 +7064,7 @@ index 0000000..fe48359
 + */
 +public class HaikuTextFieldPeer
 +  extends SwingTextFieldPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  HaikuTextFieldPeer(final TextField tf)
@@ -5370,19 +7082,46 @@ index 0000000..fe48359
 +      });
 +  }
 +
++  /**
++   * Focus events come from the AWT TextField, but Swing's text UI expects
++   * its JTextField as the source (it throws a ClassCastException).
++   */
++  protected void handleFocusEvent(java.awt.event.FocusEvent e)
++  {
++    super.handleFocusEvent(new java.awt.event.FocusEvent(textComponent(),
++                                                         e.getID(),
++                                                         e.isTemporary()));
++  }
++
++  /** The Swing text field that draws this TextField. */
++  javax.swing.text.JTextComponent textComponent()
++  {
++    return (javax.swing.text.JTextComponent) swingComponent.getJComponent();
++  }
++
 +  /** Shows the new cursor if the mouse is over this component. */
 +  public void setCursor(java.awt.Cursor cursor)
 +  {
 +    super.setCursor(cursor);
 +    HaikuEventPump.get().refreshCursor();
 +  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuToolkit.java b/gnu/java/awt/peer/haiku/HaikuToolkit.java
 new file mode 100644
-index 0000000..51435df
+index 0000000..ac96352
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuToolkit.java
-@@ -0,0 +1,588 @@
+@@ -0,0 +1,631 @@
 +/* HaikuToolkit.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -5540,6 +7279,10 @@ index 0000000..51435df
 +  {
 +    SystemProperties.setProperty("java.awt.graphicsenv",
 +                                 "gnu.java.awt.peer.haiku.HaikuGraphicsEnvironment");
++    // PrinterJob.getPrinterJob() uses this class, as in the JDK.
++    if (SystemProperties.getProperty("java.awt.printerjob") == null)
++      SystemProperties.setProperty("java.awt.printerjob",
++                                   "gnu.java.awt.peer.haiku.HaikuPrinterJob");
 +    HaikuNative.ensureInitialized();
 +  }
 +
@@ -5897,9 +7640,13 @@ index 0000000..51435df
 +
 +  // Misc.
 +
++  /** Shows Haiku's page setup and print dialogs; null if cancelled. */
 +  public PrintJob getPrintJob(Frame frame, String title, Properties props)
 +  {
-+    return null;
++    SecurityManager sm = System.getSecurityManager();
++    if (sm != null)
++      sm.checkPrintJobAccess();
++    return HaikuPrintJob.create(title);
 +  }
 +
 +  public void beep()
@@ -5953,12 +7700,45 @@ index 0000000..51435df
 +
 +  public DragSourceContextPeer createDragSourceContextPeer(DragGestureEvent e)
 +  {
-+    throw new UnsupportedOperationException("Not yet implemented.");
++    return HaikuDragDrop.createDragSourceContextPeer();
 +  }
 +
++  /** Mouse drags start drag gestures (GNU Classpath's generic recognizer). */
++  public <T extends java.awt.dnd.DragGestureRecognizer> T
++    createDragGestureRecognizer(Class<T> recognizer,
++                                java.awt.dnd.DragSource ds,
++                                java.awt.Component comp, int actions,
++                                java.awt.dnd.DragGestureListener l)
++  {
++    if (! recognizer.isAssignableFrom(
++            gnu.java.awt.dnd.GtkMouseDragGestureRecognizer.class))
++      return null;
++    gnu.java.awt.dnd.GtkMouseDragGestureRecognizer r =
++      new gnu.java.awt.dnd.GtkMouseDragGestureRecognizer(ds, comp, actions, l);
++    // GNU Classpath's DragGestureRecognizer constructor does not do this.
++    if (comp != null)
++      r.registerListeners();
++    return recognizer.cast(r);
++  }
++
++  /**
++   * Composed text: dotted underline for raw text, inverse colours for the
++   * part being converted, a solid underline for converted text.
++   */
 +  public Map mapInputMethodHighlight(InputMethodHighlight highlight)
 +  {
-+    return null;
++    java.util.HashMap<java.awt.font.TextAttribute,Object> m =
++      new java.util.HashMap<java.awt.font.TextAttribute,Object>();
++    if (highlight.isSelected())
++      m.put(java.awt.font.TextAttribute.SWAP_COLORS,
++            java.awt.font.TextAttribute.SWAP_COLORS_ON);
++    else if (highlight.getState() == InputMethodHighlight.RAW_TEXT)
++      m.put(java.awt.font.TextAttribute.INPUT_METHOD_UNDERLINE,
++            java.awt.font.TextAttribute.UNDERLINE_LOW_DOTTED);
++    else
++      m.put(java.awt.font.TextAttribute.INPUT_METHOD_UNDERLINE,
++            java.awt.font.TextAttribute.UNDERLINE_LOW_ONE_PIXEL);
++    return m;
 +  }
 +
 +  public boolean isModalExclusionTypeSupported(ModalExclusionType type)
@@ -5966,9 +7746,318 @@ index 0000000..51435df
 +    return false;
 +  }
 +
++  /** Modal dialogs block the whole application. */
 +  public boolean isModalityTypeSupported(ModalityType type)
 +  {
-+    return false;
++    return type == ModalityType.MODELESS
++           || type == ModalityType.APPLICATION_MODAL;
++  }
++}
+diff --git a/gnu/java/awt/peer/haiku/HaikuTransferable.java b/gnu/java/awt/peer/haiku/HaikuTransferable.java
+new file mode 100644
+index 0000000..91b8f48
+--- /dev/null
++++ b/gnu/java/awt/peer/haiku/HaikuTransferable.java
+@@ -0,0 +1,301 @@
++/* HaikuTransferable.java -- data from a Haiku message
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GNU Classpath.
++
++GNU Classpath is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2, or (at your option)
++any later version.
++
++GNU Classpath is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GNU Classpath; see the file COPYING.  If not, write to the
++Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
++02110-1301 USA.
++
++Linking this library statically or dynamically with other modules is
++making a combined work based on this library.  Thus, the terms and
++conditions of the GNU General Public License cover the whole
++combination.
++
++As a special exception, the copyright holders of this library give you
++permission to link this library with independent modules to produce an
++executable, regardless of the license terms of these independent
++modules, and to copy and distribute the resulting executable under
++terms of your choice, provided that you also meet, for each linked
++independent module, the terms and conditions of the license of that
++module.  An independent module is a module which is not derived from
++or based on this library.  If you modify this library, you may extend
++this exception to your version of the library, but you are not
++obligated to do so.  If you do not wish to do so, delete this
++exception statement from your version. */
++
++package gnu.java.awt.peer.haiku;
++
++import java.awt.Image;
++import java.awt.datatransfer.DataFlavor;
++import java.awt.datatransfer.Transferable;
++import java.awt.datatransfer.UnsupportedFlavorException;
++import java.awt.image.BufferedImage;
++import java.io.ByteArrayInputStream;
++import java.io.File;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++
++/**
++ * The data in a Haiku message: the clipboard, a drag or a drop. Text
++ * ("text/plain") is a String, files ("refs") are a file list, pictures
++ * (archived bitmaps or any image type a translator reads) are an Image,
++ * and other MIME types are an InputStream (and a String for text types).
++ *
++ * The data is read when it is asked for. If the message was replaced in
++ * the meantime, getTransferData() throws an IOException.
++ */
++final class HaikuTransferable
++  implements Transferable
++{
++
++  private final int src;
++
++  private final int generation;
++
++  private final DataFlavor[] flavors;
++
++  /** The MIME type in the message for each flavor. */
++  private final HashMap<DataFlavor,String> types =
++    new HashMap<DataFlavor,String>();
++
++  private HaikuTransferable(int src)
++  {
++    this.src = src;
++    generation = HaikuNative.msgGeneration(src);
++    String[] names = HaikuNative.msgTypes(src);
++    ArrayList<DataFlavor> l = new ArrayList<DataFlavor>();
++    boolean image = false;
++    for (int i = 0; i < names.length; i++)
++      {
++        String n = names[i];
++        if (n.equals("text/plain"))
++          add(l, DataFlavor.stringFlavor, n);
++        else if (n.equals("refs"))
++          add(l, DataFlavor.javaFileListFlavor, n);
++        else if (n.startsWith("image/"))
++          {
++            if (! image)
++              add(l, DataFlavor.imageFlavor, n);
++            image = true;
++            if (n.indexOf('/') > 0 && ! n.equals("image/bitmap")
++                && ! n.equals("image/x-be-bitmap"))
++              addMime(l, n);
++          }
++        else if (n.indexOf('/') > 0)
++          addMime(l, n);
++      }
++    flavors = l.toArray(new DataFlavor[l.size()]);
++  }
++
++  /** The data of a message source, or null if it has nothing usable. */
++  static HaikuTransferable read(int src)
++  {
++    HaikuTransferable t = new HaikuTransferable(src);
++    return t.flavors.length > 0 ? t : null;
++  }
++
++  private void add(List<DataFlavor> l, DataFlavor f, String type)
++  {
++    if (! types.containsKey(f))
++      {
++        l.add(f);
++        types.put(f, type);
++      }
++  }
++
++  private void addMime(List<DataFlavor> l, String mime)
++  {
++    try
++      {
++        add(l, new DataFlavor(mime + "; class=java.io.InputStream"), mime);
++        if (mime.startsWith("text/"))
++          add(l, new DataFlavor(mime + "; class=java.lang.String"), mime);
++      }
++    catch (Exception e)
++      {
++        // Not a MIME type that Java understands.
++      }
++  }
++
++  public DataFlavor[] getTransferDataFlavors()
++  {
++    return (DataFlavor[]) flavors.clone();
++  }
++
++  public boolean isDataFlavorSupported(DataFlavor flavor)
++  {
++    return types.containsKey(flavor);
++  }
++
++  public Object getTransferData(DataFlavor flavor)
++    throws UnsupportedFlavorException, IOException
++  {
++    String type = types.get(flavor);
++    if (type == null)
++      throw new UnsupportedFlavorException(flavor);
++    if (HaikuNative.msgGeneration(src) != generation)
++      throw new IOException("the data is no longer available");
++    if (flavor.equals(DataFlavor.javaFileListFlavor))
++      {
++        String[] paths = HaikuNative.msgFiles(src);
++        ArrayList<File> files = new ArrayList<File>();
++        for (int i = 0; i < paths.length; i++)
++          files.add(new File(paths[i]));
++        return files;
++      }
++    if (flavor.equals(DataFlavor.imageFlavor))
++      {
++        int[] dims = new int[2];
++        int[] argb = HaikuNative.msgImage(src, dims);
++        if (argb == null)
++          throw new IOException("cannot read the picture");
++        BufferedImage img = new BufferedImage(dims[0], dims[1],
++                                              BufferedImage.TYPE_INT_ARGB);
++        img.setRGB(0, 0, dims[0], dims[1], argb, 0, dims[0]);
++        return img;
++      }
++    byte[] data = HaikuNative.msgData(src, type);
++    if (data == null)
++      throw new IOException("no data for " + type);
++    Class<?> c = flavor.getRepresentationClass();
++    if (c == String.class)
++      {
++        String cs = flavor.getParameter("charset");
++        return new String(data, cs != null && ! flavor.equals(DataFlavor.stringFlavor)
++                                ? cs : "UTF-8");
++      }
++    return new ByteArrayInputStream(data);
++  }
++
++  /** Copies an image to ARGB pixels; dims gets width and height. */
++  static int[] pixels(Image img, int[] dims)
++  {
++    BufferedImage b;
++    if (img instanceof BufferedImage)
++      b = (BufferedImage) img;
++    else
++      {
++        int w = img.getWidth(null);
++        int h = img.getHeight(null);
++        if (w <= 0 || h <= 0)
++          return null;
++        b = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
++        java.awt.Graphics g = b.createGraphics();
++        g.drawImage(img, 0, 0, null);
++        g.dispose();
++      }
++    dims[0] = b.getWidth();
++    dims[1] = b.getHeight();
++    return b.getRGB(0, 0, dims[0], dims[1], null, 0, dims[0]);
++  }
++
++  /**
++   * Makes a Haiku message from a Transferable: text, files, a picture,
++   * and the other MIME types whose data is bytes, text or a stream.
++   */
++  static long toMessage(Transferable t, int what)
++  {
++    long m = HaikuNative.msgNew(what);
++    if (t == null)
++      return m;
++    DataFlavor[] fs = t.getTransferDataFlavors();
++    java.util.HashSet<String> done = new java.util.HashSet<String>();
++    for (int i = 0; i < fs.length; i++)
++      {
++        DataFlavor f = fs[i];
++        try
++          {
++            String mime = f.getPrimaryType() + "/" + f.getSubType();
++            if (f.equals(DataFlavor.stringFlavor))
++              {
++                if (done.add("text/plain"))
++                  HaikuNative.msgAddData(m, "text/plain",
++                    ((String) t.getTransferData(f)).getBytes("UTF-8"));
++              }
++            else if (f.equals(DataFlavor.imageFlavor))
++              {
++                if (done.add("image"))
++                  {
++                    int[] dims = new int[2];
++                    int[] argb = pixels((Image) t.getTransferData(f), dims);
++                    if (argb != null)
++                      HaikuNative.msgAddImage(m, argb, dims[0], dims[1]);
++                  }
++              }
++            else if (f.equals(DataFlavor.javaFileListFlavor))
++              {
++                if (done.add("refs"))
++                  {
++                    List<?> files = (List<?>) t.getTransferData(f);
++                    String[] paths = new String[files.size()];
++                    for (int k = 0; k < paths.length; k++)
++                      paths[k] = ((File) files.get(k)).getAbsolutePath();
++                    HaikuNative.msgAddFiles(m, paths);
++                  }
++              }
++            else if (! mime.startsWith("application/x-java")
++                     && ! done.contains(mime))
++              {
++                byte[] b = bytes(t.getTransferData(f), f);
++                if (b != null)
++                  {
++                    HaikuNative.msgAddData(m, mime, b);
++                    done.add(mime);
++                  }
++              }
++          }
++        catch (Exception e)
++          {
++            // Leave this flavor out.
++          }
++      }
++    return m;
++  }
++
++  private static byte[] bytes(Object o, DataFlavor f)
++    throws IOException
++  {
++    if (o instanceof byte[])
++      return (byte[]) o;
++    if (o instanceof String)
++      {
++        String cs = f.getParameter("charset");
++        return ((String) o).getBytes(cs != null ? cs : "UTF-8");
++      }
++    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
++    if (o instanceof java.io.InputStream)
++      {
++        java.io.InputStream in = (java.io.InputStream) o;
++        byte[] buf = new byte[8192];
++        int n;
++        while ((n = in.read(buf)) > 0)
++          out.write(buf, 0, n);
++        return out.toByteArray();
++      }
++    if (o instanceof java.io.Reader)
++      {
++        java.io.Reader in = (java.io.Reader) o;
++        StringBuilder sb = new StringBuilder();
++        char[] buf = new char[4096];
++        int n;
++        while ((n = in.read(buf)) > 0)
++          sb.append(buf, 0, n);
++        return sb.toString().getBytes("UTF-8");
++      }
++    return null;
 +  }
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuVolatileImage.java b/gnu/java/awt/peer/haiku/HaikuVolatileImage.java
@@ -6093,10 +8182,10 @@ index 0000000..a1223ac
 +}
 diff --git a/gnu/java/awt/peer/haiku/HaikuWindowPeer.java b/gnu/java/awt/peer/haiku/HaikuWindowPeer.java
 new file mode 100644
-index 0000000..06c83fd
+index 0000000..9f0be05
 --- /dev/null
 +++ b/gnu/java/awt/peer/haiku/HaikuWindowPeer.java
-@@ -0,0 +1,462 @@
+@@ -0,0 +1,503 @@
 +/* HaikuWindowPeer.java -- part of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -6173,6 +8262,7 @@ index 0000000..06c83fd
 + */
 +public class HaikuWindowPeer
 +  extends SwingWindowPeer
++  implements java.awt.dnd.peer.DropTargetPeer
 +{
 +
 +  private static int nextId = 1;
@@ -6242,6 +8332,8 @@ index 0000000..06c83fd
 +      HaikuNative.setResizable(handle, ((Frame) window).isResizable());
 +    else if (window instanceof Dialog)
 +      HaikuNative.setResizable(handle, ((Dialog) window).isResizable());
++    if (window.isAlwaysOnTop())
++      updateFeel();
 +  }
 +
 +  /**
@@ -6525,9 +8617,47 @@ index 0000000..06c83fd
 +    HaikuNative.toFront(handle);
 +  }
 +
++  /** True while this is a shown modal dialog. */
++  private boolean modalShown;
++
++  void setModalShown(boolean shown)
++  {
++    modalShown = shown;
++    updateFeel();
++  }
++
++  /**
++   * A modal dialog has the modal app feel; an always-on-top window floats
++   * above all windows of all applications.
++   */
++  void updateFeel()
++  {
++    int feel = HaikuNative.B_NORMAL_WINDOW_FEEL;
++    if (modalShown)
++      feel = HaikuNative.B_MODAL_APP_WINDOW_FEEL;
++    else if (getWindow().isAlwaysOnTop())
++      feel = HaikuNative.B_FLOATING_ALL_WINDOW_FEEL;
++    HaikuNative.setFeel(handle, feel);
++  }
++
 +  public void updateAlwaysOnTop()
 +  {
-+    // TODO: B_FLOATING_ALL_WINDOW_FEEL.
++    updateFeel();
++  }
++
++  public void setAlwaysOnTop(boolean alwaysOnTop)
++  {
++    updateFeel();
++  }
++
++  // Drop targets are found by the event pump; nothing to register.
++
++  public void addDropTarget(java.awt.dnd.DropTarget target)
++  {
++  }
++
++  public void removeDropTarget(java.awt.dnd.DropTarget target)
++  {
 +  }
 +
 +  public boolean requestWindowFocus()
@@ -7912,10 +10042,10 @@ index 1656c5c..2791054 100644
  gnu_java_awt_peer_qt_QtScreenDevice.h: $(top_srcdir)/gnu/java/awt/peer/qt/QtScreenDevice.java
 diff --git a/include/gnu_java_awt_peer_haiku_HaikuNative.h b/include/gnu_java_awt_peer_haiku_HaikuNative.h
 new file mode 100644
-index 0000000..480cae5
+index 0000000..913b00b
 --- /dev/null
 +++ b/include/gnu_java_awt_peer_haiku_HaikuNative.h
-@@ -0,0 +1,413 @@
+@@ -0,0 +1,641 @@
 +/* DO NOT EDIT THIS FILE - it is machine generated */
 +#include <jni.h>
 +/* Header for class gnu_java_awt_peer_haiku_HaikuNative */
@@ -7963,6 +10093,42 @@ index 0000000..480cae5
 +#define gnu_java_awt_peer_haiku_HaikuNative_EV_EDIT 18L
 +#undef gnu_java_awt_peer_haiku_HaikuNative_EV_FILTER
 +#define gnu_java_awt_peer_haiku_HaikuNative_EV_FILTER 19L
++#undef gnu_java_awt_peer_haiku_HaikuNative_EV_DRAG
++#define gnu_java_awt_peer_haiku_HaikuNative_EV_DRAG 20L
++#undef gnu_java_awt_peer_haiku_HaikuNative_EV_DROP
++#define gnu_java_awt_peer_haiku_HaikuNative_EV_DROP 21L
++#undef gnu_java_awt_peer_haiku_HaikuNative_EV_IM
++#define gnu_java_awt_peer_haiku_HaikuNative_EV_IM 22L
++#undef gnu_java_awt_peer_haiku_HaikuNative_DRAG_ENTER
++#define gnu_java_awt_peer_haiku_HaikuNative_DRAG_ENTER 1L
++#undef gnu_java_awt_peer_haiku_HaikuNative_DRAG_OVER
++#define gnu_java_awt_peer_haiku_HaikuNative_DRAG_OVER 2L
++#undef gnu_java_awt_peer_haiku_HaikuNative_DRAG_EXIT
++#define gnu_java_awt_peer_haiku_HaikuNative_DRAG_EXIT 3L
++#undef gnu_java_awt_peer_haiku_HaikuNative_SRC_CLIPBOARD
++#define gnu_java_awt_peer_haiku_HaikuNative_SRC_CLIPBOARD 0L
++#undef gnu_java_awt_peer_haiku_HaikuNative_SRC_DRAG
++#define gnu_java_awt_peer_haiku_HaikuNative_SRC_DRAG 1L
++#undef gnu_java_awt_peer_haiku_HaikuNative_SRC_DROP
++#define gnu_java_awt_peer_haiku_HaikuNative_SRC_DROP 2L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_SIMPLE_DATA
++#define gnu_java_awt_peer_haiku_HaikuNative_B_SIMPLE_DATA 1145132097L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_MIME_DATA
++#define gnu_java_awt_peer_haiku_HaikuNative_B_MIME_DATA 1296649541L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STARTED
++#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STARTED 0L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STOPPED
++#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_STOPPED 1L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_CHANGED
++#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_CHANGED 2L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_LOCATION_REQUEST
++#define gnu_java_awt_peer_haiku_HaikuNative_B_INPUT_METHOD_LOCATION_REQUEST 3L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_NORMAL_WINDOW_FEEL
++#define gnu_java_awt_peer_haiku_HaikuNative_B_NORMAL_WINDOW_FEEL 0L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_MODAL_APP_WINDOW_FEEL
++#define gnu_java_awt_peer_haiku_HaikuNative_B_MODAL_APP_WINDOW_FEEL 1L
++#undef gnu_java_awt_peer_haiku_HaikuNative_B_FLOATING_ALL_WINDOW_FEEL
++#define gnu_java_awt_peer_haiku_HaikuNative_B_FLOATING_ALL_WINDOW_FEEL 6L
 +#undef gnu_java_awt_peer_haiku_HaikuNative_EDIT_CUT
 +#define gnu_java_awt_peer_haiku_HaikuNative_EDIT_CUT 1L
 +#undef gnu_java_awt_peer_haiku_HaikuNative_EDIT_COPY
@@ -8303,19 +10469,59 @@ index 0000000..480cae5
 +
 +/*
 + * Class:     gnu_java_awt_peer_haiku_HaikuNative
-+ * Method:    clipboardSetText
-+ * Signature: (Ljava/lang/String;)J
++ * Method:    setFeel
++ * Signature: (JI)V
 + */
-+JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSetText
-+  (JNIEnv *, jclass, jstring);
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_setFeel
++  (JNIEnv *, jclass, jlong, jint);
 +
 +/*
 + * Class:     gnu_java_awt_peer_haiku_HaikuNative
-+ * Method:    clipboardGetText
-+ * Signature: ()Ljava/lang/String;
++ * Method:    msgNew
++ * Signature: (I)J
 + */
-+JNIEXPORT jstring JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardGetText
-+  (JNIEnv *, jclass);
++JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgNew
++  (JNIEnv *, jclass, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgDelete
++ * Signature: (J)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgDelete
++  (JNIEnv *, jclass, jlong);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgAddData
++ * Signature: (JLjava/lang/String;[B)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddData
++  (JNIEnv *, jclass, jlong, jstring, jbyteArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgAddInt
++ * Signature: (JLjava/lang/String;I)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddInt
++  (JNIEnv *, jclass, jlong, jstring, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgAddImage
++ * Signature: (J[III)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddImage
++  (JNIEnv *, jclass, jlong, jintArray, jint, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgAddFiles
++ * Signature: (J[Ljava/lang/String;)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddFiles
++  (JNIEnv *, jclass, jlong, jobjectArray);
 +
 +/*
 + * Class:     gnu_java_awt_peer_haiku_HaikuNative
@@ -8324,6 +10530,158 @@ index 0000000..480cae5
 + */
 +JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardCount
 +  (JNIEnv *, jclass);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    clipboardPut
++ * Signature: (J)J
++ */
++JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardPut
++  (JNIEnv *, jclass, jlong);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    clipboardSnapshot
++ * Signature: ()J
++ */
++JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSnapshot
++  (JNIEnv *, jclass);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgGeneration
++ * Signature: (I)I
++ */
++JNIEXPORT jint JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgGeneration
++  (JNIEnv *, jclass, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgTypes
++ * Signature: (I)[Ljava/lang/String;
++ */
++JNIEXPORT jobjectArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgTypes
++  (JNIEnv *, jclass, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgData
++ * Signature: (ILjava/lang/String;)[B
++ */
++JNIEXPORT jbyteArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgData
++  (JNIEnv *, jclass, jint, jstring);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgImage
++ * Signature: (I[I)[I
++ */
++JNIEXPORT jintArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgImage
++  (JNIEnv *, jclass, jint, jintArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgFiles
++ * Signature: (I)[Ljava/lang/String;
++ */
++JNIEXPORT jobjectArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgFiles
++  (JNIEnv *, jclass, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    msgInt
++ * Signature: (ILjava/lang/String;I)I
++ */
++JNIEXPORT jint JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_msgInt
++  (JNIEnv *, jclass, jint, jstring, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    dragStart
++ * Signature: (JJIIII[IIIII)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_dragStart
++  (JNIEnv *, jclass, jlong, jlong, jint, jint, jint, jint, jintArray, jint, jint, jint, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    printCreate
++ * Signature: (Ljava/lang/String;ZZ)J
++ */
++JNIEXPORT jlong JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printCreate
++  (JNIEnv *, jclass, jstring, jboolean, jboolean);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    printDialog
++ * Signature: (JZ)Z
++ */
++JNIEXPORT jboolean JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printDialog
++  (JNIEnv *, jclass, jlong, jboolean);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    printInfo
++ * Signature: (J[F)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printInfo
++  (JNIEnv *, jclass, jlong, jfloatArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    printBegin
++ * Signature: (J)Z
++ */
++JNIEXPORT jboolean JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printBegin
++  (JNIEnv *, jclass, jlong);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    printPage
++ * Signature: (J[III)Z
++ */
++JNIEXPORT jboolean JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printPage
++  (JNIEnv *, jclass, jlong, jintArray, jint, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    printEnd
++ * Signature: (JZ)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_printEnd
++  (JNIEnv *, jclass, jlong, jboolean);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    imText
++ * Signature: (I)Ljava/lang/String;
++ */
++JNIEXPORT jstring JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imText
++  (JNIEnv *, jclass, jint);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    imLocationReply
++ * Signature: (J[I[IF)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imLocationReply
++  (JNIEnv *, jclass, jlong, jintArray, jintArray, jfloat);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    textRender
++ * Signature: (Ljava/lang/String;FZZ[I)[I
++ */
++JNIEXPORT jintArray JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_textRender
++  (JNIEnv *, jclass, jstring, jfloat, jboolean, jboolean, jintArray);
++
++/*
++ * Class:     gnu_java_awt_peer_haiku_HaikuNative
++ * Method:    imShowComposition
++ * Signature: (Ljava/lang/String;IIII)V
++ */
++JNIEXPORT void JNICALL Java_gnu_java_awt_peer_haiku_HaikuNative_imShowComposition
++  (JNIEnv *, jclass, jstring, jint, jint, jint, jint);
 +
 +#ifdef __cplusplus
 +}
@@ -8487,6 +10845,115 @@ index 3cc8738..4014a0c 100644
    }
  
    public int getState()
+diff --git a/java/awt/dnd/DragSource.java b/java/awt/dnd/DragSource.java
+index cd4a93a..487d01f 100644
+--- a/java/awt/dnd/DragSource.java
++++ b/java/awt/dnd/DragSource.java
+@@ -144,15 +144,11 @@ public class DragSource implements Serializable
+       {
+         flavorMap = map;
+         
+-        if (peer == null)
+-          peer = Toolkit.getDefaultToolkit().createDragSourceContextPeer(trigger);
+-        
+-        if (context == null)
+-          context = createDragSourceContext(peer, trigger,
+-                                                            dragCursor,
+-                                                            dragImage,
+-                                                            imageOffset, trans,
+-                                                            dsl);
++        // Each drag gets its own peer and context; reusing the first ones
++        // would drag the first Transferable again.
++        peer = Toolkit.getDefaultToolkit().createDragSourceContextPeer(trigger);
++        context = createDragSourceContext(peer, trigger, dragCursor,
++                                          dragImage, imageOffset, trans, dsl);
+ 
+         if (peer == null)
+           throw new InvalidDnDOperationException();
+diff --git a/java/awt/dnd/DropTargetContext.java b/java/awt/dnd/DropTargetContext.java
+index d970e2e..7465a67 100644
+--- a/java/awt/dnd/DropTargetContext.java
++++ b/java/awt/dnd/DropTargetContext.java
+@@ -117,11 +117,18 @@ public class DropTargetContext implements Serializable
+   protected void setTargetActions(int actions)
+   {
+     targetActions = actions;
++    if (dtcp != null)
++      dtcp.setTargetActions(actions);
+   }
+ 
+   protected int getTargetActions()
+   {
+-    return targetActions;
++    // As in the JDK, the peer knows the actions; without one, use the
++    // drop target's default actions.
++    if (dtcp != null)
++      return dtcp.getTargetActions();
++    return targetActions != 0 ? targetActions
++                              : dropTarget.getDefaultActions();
+   }
+ 
+   /**
+@@ -162,7 +169,7 @@ public class DropTargetContext implements Serializable
+   protected DataFlavor[] getCurrentDataFlavors ()
+   {
+     if (dtcp != null)
+-      dtcp.getTransferDataFlavors();
++      return dtcp.getTransferDataFlavors();
+     return null;
+   }
+ 
+diff --git a/java/awt/dnd/DropTargetDragEvent.java b/java/awt/dnd/DropTargetDragEvent.java
+index 58feb43..0f50e2a 100644
+--- a/java/awt/dnd/DropTargetDragEvent.java
++++ b/java/awt/dnd/DropTargetDragEvent.java
+@@ -90,7 +90,7 @@ public class DropTargetDragEvent extends DropTargetEvent
+                          | DnDConstants.ACTION_LINK
+                          | DnDConstants.ACTION_REFERENCE;
+     
+-    if (~(srcActions ^ srcActionsMask) != 0)
++    if ((srcActions & ~srcActionsMask) != 0)
+       throw new IllegalArgumentException ();
+     
+     this.dropAction = dropAction;
+diff --git a/java/awt/dnd/DropTargetDropEvent.java b/java/awt/dnd/DropTargetDropEvent.java
+index dd85ef7..16c2cb4 100644
+--- a/java/awt/dnd/DropTargetDropEvent.java
++++ b/java/awt/dnd/DropTargetDropEvent.java
+@@ -104,7 +104,7 @@ public class DropTargetDropEvent extends DropTargetEvent
+                       | DnDConstants.ACTION_LINK
+                       | DnDConstants.ACTION_REFERENCE;
+     
+-    if (~(actions ^ actionsMask) != 0)
++    if ((actions & ~actionsMask) != 0)
+       throw new IllegalArgumentException();
+     
+     this.dropAction = dropAction;
+diff --git a/java/awt/print/PrinterJob.java b/java/awt/print/PrinterJob.java
+index 3715dd2..a08aed6 100644
+--- a/java/awt/print/PrinterJob.java
++++ b/java/awt/print/PrinterJob.java
+@@ -64,6 +64,20 @@ public abstract class PrinterJob
+    */
+   public static PrinterJob getPrinterJob()
+   {
++    // As in the JDK, the system property java.awt.printerjob can name
++    // the class (the Haiku toolkit sets it).
++    String name = gnu.classpath.SystemProperties.getProperty("java.awt.printerjob");
++    if (name != null)
++      {
++        try
++          {
++            return (PrinterJob) Class.forName(name).newInstance();
++          }
++        catch (Exception e)
++          {
++            // Use the default.
++          }
++      }
+     return new JavaPrinterJob();
+   }
+ 
 diff --git a/java/lang/Thread.java b/java/lang/Thread.java
 index 82e7261..c811cdb 100644
 --- a/java/lang/Thread.java
@@ -8596,7 +11063,7 @@ index e8db332..ba39243 100644
  all-local:
 diff --git a/native/jni/haiku-peer/Makefile.am b/native/jni/haiku-peer/Makefile.am
 new file mode 100644
-index 0000000..dce104d
+index 0000000..dad4dac
 --- /dev/null
 +++ b/native/jni/haiku-peer/Makefile.am
 @@ -0,0 +1,12 @@
@@ -8607,17 +11074,17 @@ index 0000000..dce104d
 +
 +libhaikupeer_la_SOURCES = gnu_java_awt_peer_haiku_HaikuNative.cpp
 +
-+libhaikupeer_la_LIBADD = -lbe -ltracker -lmedia
++libhaikupeer_la_LIBADD = -lbe -ltracker -lmedia -ltranslation
 +
 +AM_LDFLAGS = @CLASSPATH_MODULE@
 +AM_CPPFLAGS = @CLASSPATH_INCLUDES@
 +AM_CXXFLAGS = -Wall -Wno-unused-parameter
 diff --git a/native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp b/native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp
 new file mode 100644
-index 0000000..4906013
+index 0000000..312257a
 --- /dev/null
 +++ b/native/jni/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp
-@@ -0,0 +1,2188 @@
+@@ -0,0 +1,3082 @@
 +/* gnu_java_awt_peer_haiku_HaikuNative.cpp -- native side of the Haiku AWT peer
 +   Copyright (C) 2026 Free Software Foundation, Inc.
 +
@@ -8675,10 +11142,13 @@ index 0000000..4906013
 +#include <Application.h>
 +#include <Beep.h>
 +#include <Bitmap.h>
++#include <BitmapStream.h>
 +#include <Clipboard.h>
 +#include <Cursor.h>
 +#include <Entry.h>
++#include <DataIO.h>
 +#include <FilePanel.h>
++#include <Input.h>
 +#include <Menu.h>
 +#include <MenuBar.h>
 +#include <MenuItem.h>
@@ -8687,8 +11157,13 @@ index 0000000..4906013
 +#include <Node.h>
 +#include <Path.h>
 +#include <PopUpMenu.h>
++#include <PrintJob.h>
++#include <Roster.h>
 +#include <Screen.h>
 +#include <SoundPlayer.h>
++#include <TranslationUtils.h>
++#include <TranslatorFormats.h>
++#include <TranslatorRoster.h>
 +#include <View.h>
 +#include <Window.h>
 +#include <OS.h>
@@ -8725,8 +11200,31 @@ index 0000000..4906013
 +  EV_FILE_PANEL = 16, /* window id = dialog id, a = 1 if a file was chosen */
 +  EV_STATE = 17,      /* a = 1 if minimized, b = 1 if zoomed */
 +  EV_EDIT = 18,       /* a = EDIT_CUT, EDIT_COPY, EDIT_PASTE or EDIT_SELECT_ALL */
-+  EV_FILTER = 19      /* window id = dialog id; a file panel waits for filterAnswer() */
++  EV_FILTER = 19,     /* window id = dialog id; a file panel waits for filterAnswer() */
++  EV_DRAG = 20,       /* a = x, b = y, c = DRAG_ENTER/OVER/EXIT, d = modifiers */
++  EV_DROP = 21,       /* a = x, b = y, d = modifiers; data in message source SRC_DROP */
++  EV_IM = 22          /* a = input method opcode, b = confirmed, c, d = selection */
 +};
++
++/* Transits of EV_DRAG. */
++enum {
++  DRAG_ENTER = 1,
++  DRAG_OVER = 2,
++  DRAG_EXIT = 3
++};
++
++/* Message sources that Java can read: a copy of the clipboard, the
++   message of the drag over a window, and the last dropped message. */
++enum {
++  SRC_CLIPBOARD = 0,
++  SRC_DRAG = 1,
++  SRC_DROP = 2,
++  SRC_COUNT = 3
++};
++
++static void setSource(int32 src, BMessage *msg);
++static void imChanged(int32 id, const char *text, int32 len,
++                      int32 selStart, int32 selEnd, bool confirmed);
 +
 +/* Commands of EV_EDIT: the Command-X/C/V/A shortcuts of a BWindow. */
 +enum {
@@ -9039,7 +11537,7 @@ index 0000000..4906013
 +public:
 +  PeerView(BRect frame, int32 id)
 +    : BView(frame, "awt", B_FOLLOW_ALL_SIDES, B_WILL_DRAW | B_FRAME_EVENTS),
-+      fId(id), fBitmap(NULL), fButtons(0)
++      fId(id), fBitmap(NULL), fButtons(0), fDragInside(false)
 +  {
 +    /* We repaint every pixel from the bitmap; no app_server erase. */
 +    SetViewColor(B_TRANSPARENT_COLOR);
@@ -9112,8 +11610,35 @@ index 0000000..4906013
 +              released, modifiers());
 +  }
 +
-+  virtual void MouseMoved(BPoint where, uint32 transit, const BMessage *)
++  virtual void MouseMoved(BPoint where, uint32 transit, const BMessage *drag)
 +  {
++    if (drag != NULL)
++      {
++        /* A drag (from any application) is over this window. */
++        int32 t = DRAG_OVER;
++        if (transit == B_ENTERED_VIEW)
++          {
++            setSource(SRC_DRAG, new BMessage(*drag));
++            t = DRAG_ENTER;
++          }
++        else if (transit == B_EXITED_VIEW || transit == B_OUTSIDE_VIEW)
++          t = DRAG_EXIT;
++        if (!fDragInside && t == DRAG_OVER)
++          {
++            setSource(SRC_DRAG, new BMessage(*drag));
++            t = DRAG_ENTER;
++          }
++        fDragInside = t != DRAG_EXIT;
++        postEvent(EV_DRAG, fId, (int32) where.x, (int32) where.y, t,
++                  modifiers());
++        return;
++      }
++    if (fDragInside)
++      {
++        fDragInside = false;
++        postEvent(EV_DRAG, fId, (int32) where.x, (int32) where.y, DRAG_EXIT,
++                  modifiers());
++      }
 +    int32 buttons, clicks;
 +    currentMouseState(this, &buttons, &clicks);
 +    int32 type = EV_MOUSE_MOVED;
@@ -9140,8 +11665,20 @@ index 0000000..4906013
 +
 +  virtual void MessageReceived(BMessage *msg)
 +  {
++    if (msg->WasDropped())
++      {
++        BPoint p = msg->DropPoint();
++        ConvertFromScreen(&p);
++        setSource(SRC_DROP, new BMessage(*msg));
++        fDragInside = false;
++        postEvent(EV_DROP, fId, (int32) p.x, (int32) p.y, 0, modifiers());
++        return;
++      }
 +    switch (msg->what)
 +      {
++      case B_INPUT_METHOD_EVENT:
++        InputMethodEvent(msg);
++        return;
 +      case B_CUT:
 +        postEvent(EV_EDIT, fId, EDIT_CUT);
 +        return;
@@ -9170,6 +11707,39 @@ index 0000000..4906013
 +  }
 +
 +private:
++  void InputMethodEvent(BMessage *msg)
++  {
++    int32 opcode = -1;
++    msg->FindInt32("be:opcode", &opcode);
++    switch (opcode)
++      {
++      case B_INPUT_METHOD_STARTED:
++        {
++          BMessenger reply;
++          if (msg->FindMessenger("be:reply_to", &reply) == B_OK)
++            fIMReply = reply;
++          postEvent(EV_IM, fId, opcode);
++          break;
++        }
++      case B_INPUT_METHOD_CHANGED:
++        {
++          const char *text = "";
++          bool confirmed = false;
++          int32 selStart = 0, selEnd = 0;
++          msg->FindString("be:string", &text);
++          msg->FindBool("be:confirmed", &confirmed);
++          msg->FindInt32("be:selection", 0, &selStart);
++          msg->FindInt32("be:selection", 1, &selEnd);
++          imChanged(fId, text, strlen(text), selStart, selEnd, confirmed);
++          break;
++        }
++      case B_INPUT_METHOD_LOCATION_REQUEST:
++      case B_INPUT_METHOD_STOPPED:
++        postEvent(EV_IM, fId, opcode);
++        break;
++      }
++  }
++
 +  void PostKey(int32 type, const char *bytes, int32 numBytes)
 +  {
 +    BMessage *msg = Window()->CurrentMessage();
@@ -9202,9 +11772,15 @@ index 0000000..4906013
 +    return 0;
 +  }
 +
++public:
++  /* The input method that talks to this view. */
++  BMessenger fIMReply;
++
++private:
 +  int32 fId;
 +  BBitmap *fBitmap;
 +  int32 fButtons;
++  bool fDragInside;
 +};
 +
 +class PeerWindow : public BWindow
@@ -9312,6 +11888,17 @@ index 0000000..4906013
 +  virtual void WindowActivated(bool active)
 +  {
 +    postEvent(EV_ACTIVATED, fId, active ? 1 : 0);
++  }
++
++  /* Input method events sent to the window go to the view. */
++  virtual void MessageReceived(BMessage *msg)
++  {
++    if (msg->what == B_INPUT_METHOD_EVENT)
++      {
++        fView->MessageReceived(msg);
++        return;
++      }
++    BWindow::MessageReceived(msg);
 +  }
 +
 +  PeerView *View() { return fView; }
@@ -10313,49 +12900,6 @@ index 0000000..4906013
 +  return (jlong) (intptr_t) new BCursor(&bmp, BPoint(hx, hy));
 +}
 +
-+/* Puts text on the system clipboard.  Returns the clipboard count. */
-+JNIEXPORT jlong JNICALL
-+Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSetText(JNIEnv *env,
-+                                                          jclass,
-+                                                          jstring text)
-+{
-+  std::string t = utf8FromString(env, text);
-+  jlong count = -1;
-+  if (be_clipboard->Lock())
-+    {
-+      be_clipboard->Clear();
-+      BMessage *data = be_clipboard->Data();
-+      if (data != NULL)
-+        {
-+          data->AddData("text/plain", B_MIME_TYPE, t.data(), t.size());
-+          be_clipboard->Commit();
-+        }
-+      count = be_clipboard->SystemCount();
-+      be_clipboard->Unlock();
-+    }
-+  return count;
-+}
-+
-+/* The text on the system clipboard, or null. */
-+JNIEXPORT jstring JNICALL
-+Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardGetText(JNIEnv *env,
-+                                                          jclass)
-+{
-+  jstring result = NULL;
-+  if (be_clipboard->Lock())
-+    {
-+      BMessage *data = be_clipboard->Data();
-+      const void *text = NULL;
-+      ssize_t len = 0;
-+      if (data != NULL
-+          && data->FindData("text/plain", B_MIME_TYPE, &text, &len) == B_OK
-+          && text != NULL)
-+        result = newStringFromUTF8(env, (const char *) text, len);
-+      be_clipboard->Unlock();
-+    }
-+  return result;
-+}
-+
 +/* Changes every time any application writes to the clipboard. */
 +JNIEXPORT jlong JNICALL
 +Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardCount(JNIEnv *, jclass)
@@ -10803,6 +13347,823 @@ index 0000000..4906013
 +  pthread_mutex_lock(&s->lock);
 +  s->gain = gain;
 +  pthread_mutex_unlock(&s->lock);
++}
++
++} /* extern "C" */
++
++/* ------------------------------------------------------------------ */
++/* Window feel, data transfer (clipboard and drag and drop), printing and
++   input methods. */
++
++/* Message sources, guarded by gSourceLock.  Each new message gets a new
++   generation number, so Java can see that its data went away. */
++static pthread_mutex_t gSourceLock = PTHREAD_MUTEX_INITIALIZER;
++static BMessage *gSources[SRC_COUNT];
++static int32 gSourceGen[SRC_COUNT];
++
++static void
++setSource(int32 src, BMessage *msg)
++{
++  pthread_mutex_lock(&gSourceLock);
++  delete gSources[src];
++  gSources[src] = msg;
++  gSourceGen[src]++;
++  pthread_mutex_unlock(&gSourceLock);
++}
++
++/* Converts any bitmap to B_RGBA32, which Java reads as 0xAARRGGBB. */
++static BBitmap *
++toRGBA32(BBitmap *bmp)
++{
++  if (bmp == NULL || bmp->ColorSpace() == B_RGBA32)
++    return bmp;
++  BBitmap *out = new BBitmap(bmp->Bounds(), B_RGBA32);
++  if (out->InitCheck() != B_OK
++      || out->ImportBits(bmp) != B_OK)
++    {
++      delete out;
++      out = NULL;
++    }
++  delete bmp;
++  return out;
++}
++
++/* The picture in a message, as B_RGBA32, or NULL.  Archived bitmaps
++   ("image/bitmap", "image/x-be-bitmap") come first, then any image data
++   that a translator can read. */
++static BBitmap *
++messageImage(BMessage *msg)
++{
++  static const char *archives[] = { "image/bitmap", "image/x-be-bitmap" };
++  for (int i = 0; i < 2; i++)
++    {
++      BMessage archive;
++      if (msg->FindMessage(archives[i], &archive) == B_OK)
++        {
++          BArchivable *obj = BBitmap::Instantiate(&archive);
++          BBitmap *bmp = dynamic_cast<BBitmap *>(obj);
++          if (bmp != NULL)
++            return toRGBA32(bmp);
++          delete obj;
++        }
++    }
++  char *name;
++  type_code type;
++  for (int32 i = 0; msg->GetInfo(B_MIME_TYPE, i, &name, &type) == B_OK; i++)
++    {
++      if (strncmp(name, "image/", 6) != 0)
++        continue;
++      const void *data;
++      ssize_t len;
++      if (msg->FindData(name, B_MIME_TYPE, &data, &len) != B_OK)
++        continue;
++      BMemoryIO io(data, len);
++      BBitmap *bmp = BTranslationUtils::GetBitmap(&io);
++      if (bmp != NULL)
++        return toRGBA32(bmp);
++    }
++  return NULL;
++}
++
++/* A B_RGBA32 bitmap from Java ARGB pixels. */
++static BBitmap *
++bitmapFromPixels(JNIEnv *env, jintArray pixels, jint w, jint h)
++{
++  if (pixels == NULL || w < 1 || h < 1)
++    return NULL;
++  BBitmap *bmp = new BBitmap(BRect(0, 0, w - 1, h - 1), B_RGBA32);
++  if (bmp->InitCheck() != B_OK)
++    {
++      delete bmp;
++      return NULL;
++    }
++  jint *src = env->GetIntArrayElements(pixels, NULL);
++  if (src == NULL)
++    {
++      delete bmp;
++      return NULL;
++    }
++  uint8 *bits = (uint8 *) bmp->Bits();
++  for (jint row = 0; row < h; row++)
++    memcpy(bits + row * bmp->BytesPerRow(), src + row * w, w * 4);
++  env->ReleaseIntArrayElements(pixels, src, JNI_ABORT);
++  return bmp;
++}
++
++/* Puts a composing text window near the text.  It never takes focus. */
++class CompositionView : public BView
++{
++public:
++  CompositionView(BRect r)
++    : BView(r, "composition", B_FOLLOW_ALL_SIDES, B_WILL_DRAW) {}
++
++  void SetText(const char *t, int32 selStart, int32 selEnd)
++  {
++    fText = t;
++    fSelStart = selStart;
++    fSelEnd = selEnd;
++    Invalidate();
++  }
++
++  virtual void Draw(BRect)
++  {
++    SetHighColor(255, 255, 230);
++    FillRect(Bounds());
++    font_height fh;
++    GetFontHeight(&fh);
++    float base = 3 + fh.ascent;
++    /* Selected (converting) part: inverted. */
++    if (fSelEnd > fSelStart)
++      {
++        float x0 = 4 + StringWidth(fText.c_str(), fSelStart);
++        float x1 = 4 + StringWidth(fText.c_str(), fSelEnd);
++        SetHighColor(40, 60, 140);
++        FillRect(BRect(x0, 2, x1, base + fh.descent));
++      }
++    SetLowColor(255, 255, 230);
++    SetHighColor(0, 0, 0);
++    SetDrawingMode(B_OP_OVER);
++    DrawString(fText.c_str(), BPoint(4, base));
++    SetDrawingMode(B_OP_COPY);
++    StrokeLine(BPoint(4, base + 2),
++               BPoint(4 + StringWidth(fText.c_str()), base + 2));
++    SetHighColor(150, 150, 150);
++    StrokeRect(Bounds());
++  }
++
++private:
++  std::string fText;
++  int32 fSelStart, fSelEnd;
++};
++
++static pthread_mutex_t gIMLock = PTHREAD_MUTEX_INITIALIZER;
++static std::map<int32, std::string> gIMText;
++static BWindow *gCompWindow;
++static CompositionView *gCompView;
++
++/* Number of UTF-16 units in the first n bytes of UTF-8 text. */
++static int32
++utf16Length(const char *s, int32 n)
++{
++  int32 units = 0;
++  for (int32 i = 0; i < n; i++)
++    {
++      unsigned char c = s[i];
++      if ((c & 0xC0) != 0x80)
++        units += c >= 0xF0 ? 2 : 1;
++    }
++  return units;
++}
++
++static void
++imChanged(int32 id, const char *text, int32 len, int32 selStart,
++          int32 selEnd, bool confirmed)
++{
++  pthread_mutex_lock(&gIMLock);
++  gIMText[id] = std::string(text, len);
++  pthread_mutex_unlock(&gIMLock);
++  if (selStart < 0 || selStart > len) selStart = 0;
++  if (selEnd < selStart || selEnd > len) selEnd = selStart;
++  postEvent(EV_IM, id, B_INPUT_METHOD_CHANGED, confirmed ? 1 : 0,
++            utf16Length(text, selStart), utf16Length(text, selEnd));
++}
++
++/* The view that prints one page: it draws the page bitmap scaled to its
++   bounds (the printable area, in points). */
++class PrintView : public BView
++{
++public:
++  PrintView(BRect r, BBitmap *page)
++    : BView(r, "page", B_FOLLOW_NONE, B_WILL_DRAW), fPage(page) {}
++
++  virtual void Draw(BRect)
++  {
++    DrawBitmap(fPage, fPage->Bounds(), Bounds(), B_FILTER_BITMAP_BILINEAR);
++  }
++
++private:
++  BBitmap *fPage;
++};
++
++static BPrintJob *
++pjob(jlong h)
++{
++  return (BPrintJob *) (intptr_t) h;
++}
++
++static BMessage *
++msgOf(jlong h)
++{
++  return (BMessage *) (intptr_t) h;
++}
++
++extern "C" {
++
++/* Sets the window feel: B_NORMAL_WINDOW_FEEL, B_MODAL_APP_WINDOW_FEEL,
++   B_FLOATING_ALL_WINDOW_FEEL... */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_setFeel(JNIEnv *, jclass, jlong h,
++                                                 jint feel)
++{
++  PeerWindow *pw = win(h);
++  if (pw->Lock())
++    {
++      if (pw->Feel() != (window_feel) feel)
++        pw->SetFeel((window_feel) feel);
++      pw->Unlock();
++    }
++}
++
++/* Messages that Java fills, then puts on the clipboard or drags. */
++
++JNIEXPORT jlong JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgNew(JNIEnv *, jclass, jint what)
++{
++  return (jlong) (intptr_t) new BMessage((uint32) what);
++}
++
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgDelete(JNIEnv *, jclass, jlong h)
++{
++  delete msgOf(h);
++}
++
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddData(JNIEnv *env, jclass,
++                                                    jlong h, jstring mime,
++                                                    jbyteArray data)
++{
++  std::string m = utf8FromString(env, mime);
++  jsize n = env->GetArrayLength(data);
++  jbyte *b = env->GetByteArrayElements(data, NULL);
++  if (b == NULL)
++    return;
++  msgOf(h)->AddData(m.c_str(), B_MIME_TYPE, b, n);
++  env->ReleaseByteArrayElements(data, b, JNI_ABORT);
++}
++
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddInt(JNIEnv *env, jclass,
++                                                   jlong h, jstring name,
++                                                   jint v)
++{
++  std::string n = utf8FromString(env, name);
++  msgOf(h)->AddInt32(n.c_str(), v);
++}
++
++/* Adds a picture as an archived bitmap ("image/bitmap", as ShowImage
++   copies it) and as PNG data. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddImage(JNIEnv *env, jclass,
++                                                     jlong h,
++                                                     jintArray pixels,
++                                                     jint w, jint hh)
++{
++  BBitmap *bmp = bitmapFromPixels(env, pixels, w, hh);
++  if (bmp == NULL)
++    return;
++  BMessage archive;
++  if (bmp->Archive(&archive) == B_OK)
++    msgOf(h)->AddMessage("image/bitmap", &archive);
++  BBitmapStream stream(bmp);
++  BMallocIO png;
++  if (BTranslatorRoster::Default()->Translate(&stream, NULL, NULL, &png,
++                                              B_PNG_FORMAT) == B_OK)
++    msgOf(h)->AddData("image/png", B_MIME_TYPE, png.Buffer(),
++                      png.BufferLength());
++  BBitmap *back = NULL;
++  stream.DetachBitmap(&back);
++  delete back;
++}
++
++/* Adds files as entry_refs ("refs"), as Tracker drags them. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgAddFiles(JNIEnv *env, jclass,
++                                                     jlong h,
++                                                     jobjectArray paths)
++{
++  jsize n = env->GetArrayLength(paths);
++  for (jsize i = 0; i < n; i++)
++    {
++      jstring js = (jstring) env->GetObjectArrayElement(paths, i);
++      std::string p = utf8FromString(env, js);
++      if (js != NULL)
++        env->DeleteLocalRef(js);
++      entry_ref ref;
++      if (get_ref_for_path(p.c_str(), &ref) == B_OK)
++        msgOf(h)->AddRef("refs", &ref);
++    }
++}
++
++/* Replaces the clipboard with the fields of a message (and deletes the
++   message).  Returns the new clipboard count. */
++JNIEXPORT jlong JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardPut(JNIEnv *, jclass,
++                                                      jlong h)
++{
++  BMessage *msg = msgOf(h);
++  jlong count = -1;
++  if (be_clipboard->Lock())
++    {
++      be_clipboard->Clear();
++      BMessage *data = be_clipboard->Data();
++      if (data != NULL)
++        {
++          *data = *msg;
++          be_clipboard->Commit();
++        }
++      count = be_clipboard->SystemCount();
++      be_clipboard->Unlock();
++    }
++  delete msg;
++  return count;
++}
++
++/* Copies the clipboard into SRC_CLIPBOARD.  Returns the clipboard count. */
++JNIEXPORT jlong JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_clipboardSnapshot(JNIEnv *, jclass)
++{
++  jlong count = -1;
++  if (be_clipboard->Lock())
++    {
++      BMessage *data = be_clipboard->Data();
++      setSource(SRC_CLIPBOARD, data != NULL ? new BMessage(*data)
++                                            : new BMessage());
++      count = be_clipboard->SystemCount();
++      be_clipboard->Unlock();
++    }
++  return count;
++}
++
++/* Reading message sources. */
++
++JNIEXPORT jint JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgGeneration(JNIEnv *, jclass,
++                                                       jint src)
++{
++  pthread_mutex_lock(&gSourceLock);
++  jint g = gSourceGen[src];
++  pthread_mutex_unlock(&gSourceLock);
++  return g;
++}
++
++/* The data types in a source: MIME types, "refs" for files, and the
++   names of archived bitmaps. */
++JNIEXPORT jobjectArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgTypes(JNIEnv *env, jclass,
++                                                  jint src)
++{
++  std::vector<std::string> types;
++  pthread_mutex_lock(&gSourceLock);
++  BMessage *msg = gSources[src];
++  if (msg != NULL)
++    {
++      char *name;
++      type_code type;
++      int32 count;
++      for (int32 i = 0;
++           msg->GetInfo(B_ANY_TYPE, i, &name, &type, &count) == B_OK; i++)
++        if (type == B_MIME_TYPE || type == B_REF_TYPE
++            || (type == B_MESSAGE_TYPE && strncmp(name, "image/", 6) == 0))
++          types.push_back(name);
++    }
++  pthread_mutex_unlock(&gSourceLock);
++  jobjectArray arr = env->NewObjectArray(types.size(),
++                                         env->FindClass("java/lang/String"),
++                                         NULL);
++  for (size_t i = 0; i < types.size(); i++)
++    {
++      jstring js = newStringFromUTF8(env, types[i].data(), types[i].size());
++      env->SetObjectArrayElement(arr, i, js);
++      env->DeleteLocalRef(js);
++    }
++  return arr;
++}
++
++JNIEXPORT jbyteArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgData(JNIEnv *env, jclass,
++                                                 jint src, jstring mime)
++{
++  std::string m = utf8FromString(env, mime);
++  jbyteArray result = NULL;
++  pthread_mutex_lock(&gSourceLock);
++  BMessage *msg = gSources[src];
++  const void *data;
++  ssize_t len;
++  if (msg != NULL
++      && msg->FindData(m.c_str(), B_MIME_TYPE, &data, &len) == B_OK)
++    {
++      result = env->NewByteArray(len);
++      env->SetByteArrayRegion(result, 0, len, (jbyte *) data);
++    }
++  pthread_mutex_unlock(&gSourceLock);
++  return result;
++}
++
++/* The picture in a source as ARGB pixels; dims = width, height. */
++JNIEXPORT jintArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgImage(JNIEnv *env, jclass,
++                                                  jint src, jintArray dims)
++{
++  BMessage copy;
++  pthread_mutex_lock(&gSourceLock);
++  bool have = gSources[src] != NULL;
++  if (have)
++    copy = *gSources[src];
++  pthread_mutex_unlock(&gSourceLock);
++  BBitmap *bmp = have ? messageImage(&copy) : NULL;
++  if (bmp == NULL)
++    return NULL;
++  jint w = bmp->Bounds().IntegerWidth() + 1;
++  jint h = bmp->Bounds().IntegerHeight() + 1;
++  jintArray result = env->NewIntArray(w * h);
++  const uint8 *bits = (const uint8 *) bmp->Bits();
++  for (jint row = 0; row < h; row++)
++    env->SetIntArrayRegion(result, row * w, w,
++                           (jint *) (bits + row * bmp->BytesPerRow()));
++  delete bmp;
++  jint d[2] = { w, h };
++  env->SetIntArrayRegion(dims, 0, 2, d);
++  return result;
++}
++
++/* The files ("refs") in a source as paths. */
++JNIEXPORT jobjectArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgFiles(JNIEnv *env, jclass,
++                                                  jint src)
++{
++  std::vector<std::string> paths;
++  pthread_mutex_lock(&gSourceLock);
++  BMessage *msg = gSources[src];
++  entry_ref ref;
++  for (int32 i = 0; msg != NULL && msg->FindRef("refs", i, &ref) == B_OK; i++)
++    {
++      BPath path(&ref);
++      if (path.InitCheck() == B_OK)
++        paths.push_back(path.Path());
++    }
++  pthread_mutex_unlock(&gSourceLock);
++  jobjectArray arr = env->NewObjectArray(paths.size(),
++                                         env->FindClass("java/lang/String"),
++                                         NULL);
++  for (size_t i = 0; i < paths.size(); i++)
++    {
++      jstring js = newStringFromUTF8(env, paths[i].data(), paths[i].size());
++      env->SetObjectArrayElement(arr, i, js);
++      env->DeleteLocalRef(js);
++    }
++  return arr;
++}
++
++JNIEXPORT jint JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_msgInt(JNIEnv *env, jclass,
++                                                jint src, jstring name,
++                                                jint def)
++{
++  std::string n = utf8FromString(env, name);
++  int32 v = def;
++  pthread_mutex_lock(&gSourceLock);
++  if (gSources[src] != NULL)
++    gSources[src]->FindInt32(n.c_str(), &v);
++  pthread_mutex_unlock(&gSourceLock);
++  return v;
++}
++
++/* Starts dragging a message (deleted here) from a window.  The drag shows
++   the picture (with the mouse at offset) or else the rectangle. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_dragStart(JNIEnv *env, jclass,
++                                                   jlong h, jlong m,
++                                                   jint x, jint y, jint w,
++                                                   jint hh,
++                                                   jintArray pixels,
++                                                   jint iw, jint ih,
++                                                   jint offX, jint offY)
++{
++  PeerWindow *pw = win(h);
++  BMessage *msg = msgOf(m);
++  BBitmap *bmp = bitmapFromPixels(env, pixels, iw, ih);
++  if (pw->Lock())
++    {
++      if (bmp != NULL)
++        pw->View()->DragMessage(msg, bmp, B_OP_ALPHA, BPoint(offX, offY));
++      else
++        pw->View()->DragMessage(msg, BRect(x, y, x + w - 1, y + hh - 1));
++      pw->Unlock();
++    }
++  else
++    delete bmp;
++  delete msg;
++}
++
++/* Printing with BPrintJob.  Pages are bitmaps that Java renders. */
++
++/* Makes a print job.  Shows the page setup and print dialogs if asked;
++   returns 0 if the user cancelled. */
++JNIEXPORT jlong JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_printCreate(JNIEnv *env, jclass,
++                                                     jstring name,
++                                                     jboolean pageDialog,
++                                                     jboolean jobDialog)
++{
++  std::string n = utf8FromString(env, name);
++  BPrintJob *job = new BPrintJob(n.empty() ? "Java" : n.c_str());
++  if ((pageDialog && job->ConfigPage() != B_OK)
++      || (jobDialog && job->ConfigJob() != B_OK))
++    {
++      delete job;
++      return 0;
++    }
++  if (!pageDialog && !jobDialog)
++    {
++      /* No dialog: use the print server's default settings.  BeginJob()
++         needs a settings message, and BPrintJob keeps its defaults to
++         itself. */
++      static const char *kPrintServer = "application/x-vnd.Be-PSRV";
++      BMessenger server(kPrintServer);
++      if (!server.IsValid())
++        {
++          be_roster->Launch(kPrintServer);
++          for (int i = 0; i < 50 && !server.IsValid(); i++)
++            {
++              snooze(100000);
++              server = BMessenger(kPrintServer);
++            }
++        }
++      BMessage request('pdef'); /* PSRV_GET_DEFAULT_SETTINGS */
++      BMessage *settings = new BMessage;
++      if (server.SendMessage(&request, settings, 10000000, 10000000) != B_OK
++          || settings->what == (uint32) B_ERROR
++          || settings->CountNames(B_ANY_TYPE) <= 0)
++        {
++          delete settings;
++          delete job;
++          return 0;
++        }
++      /* The page setup dialog adds the scale; without it, drivers such
++         as Preview draw the page at size 0. */
++      if (!settings->HasFloat("scale"))
++        settings->AddFloat("scale", 100.0f);
++      job->SetSettings(settings);
++    }
++  return (jlong) (intptr_t) job;
++}
++
++/* Shows the page setup or print dialog again; false if cancelled. */
++JNIEXPORT jboolean JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_printDialog(JNIEnv *, jclass,
++                                                     jlong h,
++                                                     jboolean page)
++{
++  BPrintJob *job = pjob(h);
++  return (page ? job->ConfigPage() : job->ConfigJob()) == B_OK;
++}
++
++/* out = paper left, top, right, bottom, printable left, top, right,
++   bottom (points), first page, last page, x dpi, y dpi. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_printInfo(JNIEnv *env, jclass,
++                                                   jlong h, jfloatArray out)
++{
++  BPrintJob *job = pjob(h);
++  BRect paper = job->PaperRect();
++  BRect printable = job->PrintableRect();
++  int32 xdpi = 72, ydpi = 72;
++  job->GetResolution(&xdpi, &ydpi);
++  jfloat v[12] = { paper.left, paper.top, paper.right, paper.bottom,
++                   printable.left, printable.top, printable.right,
++                   printable.bottom, (jfloat) job->FirstPage(),
++                   (jfloat) job->LastPage(), (jfloat) xdpi, (jfloat) ydpi };
++  env->SetFloatArrayRegion(out, 0, 12, v);
++}
++
++JNIEXPORT jboolean JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_printBegin(JNIEnv *, jclass,
++                                                    jlong h)
++{
++  BPrintJob *job = pjob(h);
++  job->BeginJob();
++  return job->CanContinue();
++}
++
++/* Spools one page: w x h ARGB pixels that fill the printable area. */
++JNIEXPORT jboolean JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_printPage(JNIEnv *env, jclass,
++                                                   jlong h, jintArray pixels,
++                                                   jint w, jint hh)
++{
++  BPrintJob *job = pjob(h);
++  if (!job->CanContinue())
++    return JNI_FALSE;
++  BBitmap *page = bitmapFromPixels(env, pixels, w, hh);
++  if (page == NULL)
++    return JNI_FALSE;
++  BRect area = job->PrintableRect().OffsetToCopy(0, 0);
++  BWindow *window = new BWindow(area, "print", B_NO_BORDER_WINDOW_LOOK,
++                                B_NORMAL_WINDOW_FEEL, B_AVOID_FOCUS);
++  PrintView *view = new PrintView(area, page);
++  window->Lock();
++  window->AddChild(view);
++  window->Unlock();
++  job->DrawView(view, area, BPoint(0, 0));
++  job->SpoolPage();
++  window->Lock();
++  window->Quit();
++  delete page;
++  return job->CanContinue();
++}
++
++/* Sends the job to the printer (commit) or drops it, and frees it. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_printEnd(JNIEnv *, jclass, jlong h,
++                                                  jboolean commit)
++{
++  BPrintJob *job = pjob(h);
++  if (commit)
++    job->CommitJob();
++  else
++    job->CancelJob();
++  delete job;
++}
++
++/* Input methods. */
++
++/* The text of the last B_INPUT_METHOD_CHANGED in a window. */
++JNIEXPORT jstring JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_imText(JNIEnv *env, jclass,
++                                                jint id)
++{
++  std::string t;
++  pthread_mutex_lock(&gIMLock);
++  t = gIMText[id];
++  pthread_mutex_unlock(&gIMLock);
++  return newStringFromUTF8(env, t.data(), t.size());
++}
++
++/* Answers B_INPUT_METHOD_LOCATION_REQUEST: the screen position of each
++   character of the composed text, and the line height. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_imLocationReply(JNIEnv *env,
++                                                         jclass, jlong h,
++                                                         jintArray xs,
++                                                         jintArray ys,
++                                                         jfloat height)
++{
++  PeerWindow *pw = win(h);
++  BMessenger reply;
++  if (pw->Lock())
++    {
++      reply = pw->View()->fIMReply;
++      pw->Unlock();
++    }
++  if (!reply.IsValid())
++    return;
++  BMessage msg(B_INPUT_METHOD_EVENT);
++  msg.AddInt32("be:opcode", B_INPUT_METHOD_LOCATION_REQUEST);
++  jsize n = env->GetArrayLength(xs);
++  jint *x = env->GetIntArrayElements(xs, NULL);
++  jint *y = env->GetIntArrayElements(ys, NULL);
++  for (jsize i = 0; x != NULL && y != NULL && i < n; i++)
++    msg.AddPoint("be:location_reply", BPoint(x[i], y[i]));
++  if (x != NULL)
++    env->ReleaseIntArrayElements(xs, x, JNI_ABORT);
++  if (y != NULL)
++    env->ReleaseIntArrayElements(ys, y, JNI_ABORT);
++  msg.AddFloat("be:height_reply", height);
++  reply.SendMessage(&msg);
++}
++
++/* Shows composing text (null hides it) in a small window at screen point
++   (x, y); selStart and selEnd are UTF-16 offsets of the converting part. */
++JNIEXPORT void JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_imShowComposition(JNIEnv *env,
++                                                           jclass,
++                                                           jstring text,
++                                                           jint x, jint y,
++                                                           jint selStart,
++                                                           jint selEnd)
++{
++  pthread_mutex_lock(&gIMLock);
++  if (gCompWindow == NULL)
++    {
++      gCompWindow = new BWindow(BRect(0, 0, 10, 10), "composition",
++                                B_NO_BORDER_WINDOW_LOOK,
++                                B_FLOATING_ALL_WINDOW_FEEL,
++                                B_AVOID_FOCUS | B_NOT_MOVABLE
++                                | B_NOT_RESIZABLE);
++      gCompView = new CompositionView(gCompWindow->Bounds());
++      gCompWindow->AddChild(gCompView);
++      gCompWindow->Hide();
++      gCompWindow->Show();
++    }
++  BWindow *w = gCompWindow;
++  CompositionView *v = gCompView;
++  pthread_mutex_unlock(&gIMLock);
++  if (!w->Lock())
++    return;
++  if (text == NULL || env->GetStringLength(text) == 0)
++    {
++      if (!w->IsHidden())
++        w->Hide();
++    }
++  else
++    {
++      std::string t = utf8FromString(env, text);
++      /* UTF-16 offsets to byte offsets. */
++      int32 bytes[2] = { 0, 0 };
++      jint want[2] = { selStart, selEnd };
++      for (int k = 0; k < 2; k++)
++        {
++          int32 units = 0;
++          size_t i = 0;
++          while (i < t.size() && units < want[k])
++            {
++              unsigned char c = t[i];
++              units += c >= 0xF0 ? 2 : 1;
++              i++;
++              while (i < t.size() && ((unsigned char) t[i] & 0xC0) == 0x80)
++                i++;
++            }
++          bytes[k] = i;
++        }
++      font_height fh;
++      v->GetFontHeight(&fh);
++      float width = v->StringWidth(t.c_str()) + 8;
++      float height = fh.ascent + fh.descent + 7;
++      w->ResizeTo(width, height);
++      w->MoveTo(x, y);
++      v->SetText(t.c_str(), bytes[0], bytes[1]);
++      if (w->IsHidden())
++        w->Show();
++    }
++  w->Unlock();
++}
++
++} /* extern "C" */
++
++/* ------------------------------------------------------------------ */
++/* Text that the Java fonts cannot show (for example Chinese and
++   Japanese: Haiku's CJK fonts are CFF2 fonts, which GNU Classpath cannot
++   read).  The app_server draws it, with its own font fallback. */
++
++extern "C" {
++
++/* Draws text white on black and returns its coverage (0..255) per pixel;
++   dims = width, height, ascent. */
++JNIEXPORT jintArray JNICALL
++Java_gnu_java_awt_peer_haiku_HaikuNative_textRender(JNIEnv *env, jclass,
++                                                    jstring text,
++                                                    jfloat size,
++                                                    jboolean bold,
++                                                    jboolean italic,
++                                                    jintArray dims)
++{
++  std::string t = utf8FromString(env, text);
++  if (t.empty() || size <= 0)
++    return NULL;
++  BFont font(be_plain_font);
++  font.SetSize(size);
++  uint16 face = 0;
++  if (bold)
++    face |= B_BOLD_FACE;
++  if (italic)
++    face |= B_ITALIC_FACE;
++  if (face != 0)
++    font.SetFace(face);
++  font_height fh;
++  font.GetHeight(&fh);
++  int32 ascent = (int32) ceilf(fh.ascent);
++  int32 w = (int32) ceilf(font.StringWidth(t.c_str())) + 1;
++  int32 h = ascent + (int32) ceilf(fh.descent) + 1;
++  BBitmap bmp(BRect(0, 0, w - 1, h - 1), B_RGBA32, true);
++  if (bmp.InitCheck() != B_OK)
++    return NULL;
++  BView *view = new BView(bmp.Bounds(), "text", B_FOLLOW_NONE, 0);
++  bmp.AddChild(view);
++  if (!bmp.Lock())
++    return NULL;
++  view->SetHighColor(0, 0, 0);
++  view->FillRect(view->Bounds());
++  view->SetHighColor(255, 255, 255);
++  view->SetLowColor(0, 0, 0);
++  view->SetFont(&font);
++  view->SetDrawingMode(B_OP_OVER);
++  view->DrawString(t.c_str(), BPoint(0, ascent));
++  view->Sync();
++  jintArray result = env->NewIntArray(w * h);
++  std::vector<jint> row(w);
++  const uint8 *bits = (const uint8 *) bmp.Bits();
++  for (int32 y = 0; y < h; y++)
++    {
++      const uint8 *p = bits + y * bmp.BytesPerRow();
++      for (int32 x = 0; x < w; x++)
++        row[x] = p[x * 4 + 1]; /* green channel */
++      env->SetIntArrayRegion(result, y * w, w, &row[0]);
++    }
++  bmp.Unlock();
++  jint d[3] = { w, h, ascent };
++  env->SetIntArrayRegion(dims, 0, 3, d);
++  return result;
 +}
 +
 +} /* extern "C" */

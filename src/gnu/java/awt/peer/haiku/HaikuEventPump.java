@@ -156,6 +156,64 @@ final class HaikuEventPump
     return windows.get(new Integer(id));
   }
 
+  /** Shown modal dialogs, the newest last. */
+  private final ArrayList<HaikuDialogPeer> modals =
+    new ArrayList<HaikuDialogPeer>();
+
+  synchronized void modalShown(HaikuDialogPeer p)
+  {
+    modals.remove(p);
+    modals.add(p);
+  }
+
+  synchronized void modalHidden(HaikuDialogPeer p)
+  {
+    modals.remove(p);
+  }
+
+  /**
+   * The modal dialog that blocks input to w, or null. A modal dialog
+   * blocks every window except itself and the windows it owns.
+   */
+  private HaikuDialogPeer blocker(Window w)
+  {
+    HaikuDialogPeer top;
+    synchronized (this)
+      {
+        if (modals.isEmpty())
+          return null;
+        top = modals.get(modals.size() - 1);
+      }
+    Window m = top.getWindow();
+    for (Window x = w; x != null; x = x.getOwner())
+      if (x == m)
+        return null;
+    return top;
+  }
+
+  /** Event types that are user input to a window. */
+  private static boolean isInput(int type)
+  {
+    switch (type)
+      {
+      case HaikuNative.EV_CLOSE:
+      case HaikuNative.EV_MOUSE_DOWN:
+      case HaikuNative.EV_MOUSE_UP:
+      case HaikuNative.EV_MOUSE_MOVED:
+      case HaikuNative.EV_MOUSE_ENTER:
+      case HaikuNative.EV_MOUSE_EXIT:
+      case HaikuNative.EV_KEY_DOWN:
+      case HaikuNative.EV_KEY_UP:
+      case HaikuNative.EV_WHEEL:
+      case HaikuNative.EV_EDIT:
+      case HaikuNative.EV_DROP:
+      case HaikuNative.EV_IM:
+        return true;
+      default:
+        return false;
+      }
+  }
+
   public void run()
   {
     int[] ev = new int[HaikuNative.EV_INTS];
@@ -228,6 +286,19 @@ final class HaikuEventPump
     Insets in = peer.insets();
     long when = System.currentTimeMillis();
 
+    if (isInput(type))
+      {
+        HaikuDialogPeer b = blocker(w);
+        if (b != null)
+          {
+            // A click on a blocked window brings the modal dialog forward.
+            if (type == HaikuNative.EV_MOUSE_DOWN
+                || type == HaikuNative.EV_CLOSE)
+              b.toFront();
+            return;
+          }
+      }
+
     switch (type)
       {
       case HaikuNative.EV_FILE_PANEL:
@@ -247,6 +318,20 @@ final class HaikuEventPump
 
       case HaikuNative.EV_EDIT:
         edit(w, ev[2], when);
+        break;
+
+      case HaikuNative.EV_DRAG:
+        if (blocker(w) == null || ev[4] == HaikuNative.DRAG_EXIT)
+          HaikuDragDrop.drag(w, ev[2] + in.left, ev[3] + in.top, ev[4],
+                             ev[5]);
+        break;
+
+      case HaikuNative.EV_DROP:
+        HaikuDragDrop.drop(w, ev[2] + in.left, ev[3] + in.top, ev[5]);
+        break;
+
+      case HaikuNative.EV_IM:
+        HaikuInputMethods.event(peer, w, ev[2], ev[3] != 0, ev[4], ev[5]);
         break;
 
       case HaikuNative.EV_CLOSE:
@@ -294,6 +379,7 @@ final class HaikuEventPump
 
       case HaikuNative.EV_MOUSE_UP:
         mouseUp(w, ev[2] + in.left, ev[3] + in.top, ev[4], ev[5], when);
+        HaikuDragDrop.mouseReleased();
         break;
 
       case HaikuNative.EV_MOUSE_MOVED:

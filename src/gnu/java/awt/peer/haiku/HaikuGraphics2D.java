@@ -700,6 +700,121 @@ public class HaikuGraphics2D
     markDirty(dst.x, dst.y, dst.width, dst.height);
   }
 
+  // Text with characters that the font cannot show.
+
+  public void drawString(String text, int x, int y)
+  {
+    if (! drawWithFallback(text, x, y))
+      super.drawString(text, x, y);
+  }
+
+  public void drawString(String text, float x, float y)
+  {
+    if (! drawWithFallback(text, x, y))
+      super.drawString(text, x, y);
+  }
+
+  /**
+   * Draws text whose font lacks some glyphs: the runs the font has are
+   * drawn as usual, the others with Haiku's fonts (HaikuNative.textRender)
+   * in the current colour.
+   *
+   * @return false if the font has all glyphs, or the fallback cannot be
+   *         used (no direct pixels, rotated text, a paint that is not a
+   *         colour); the caller then draws normally
+   */
+  private boolean drawWithFallback(String text, float x, float y)
+  {
+    if (text == null || text.length() == 0 || pixels == null
+        || ! (getPaint() instanceof Color))
+      return false;
+    java.awt.Font f = getFont();
+    java.awt.font.FontRenderContext frc = getFontRenderContext();
+    java.awt.font.GlyphVector gv = f.createGlyphVector(frc, text);
+    int n = text.length();
+    if (gv.getNumGlyphs() != n)
+      return false;
+    boolean[] has = new boolean[n];
+    boolean missing = false;
+    for (int i = 0; i < n; i++)
+      {
+        has[i] = gv.getGlyphCode(i) != 0 || text.charAt(i) < ' ';
+        missing |= ! has[i];
+      }
+    if (! missing)
+      return false;
+    java.awt.geom.AffineTransform t = getTransform();
+    if ((t.getType() & (java.awt.geom.AffineTransform.TYPE_GENERAL_ROTATION
+                        | java.awt.geom.AffineTransform.TYPE_QUADRANT_ROTATION
+                        | java.awt.geom.AffineTransform.TYPE_FLIP
+                        | java.awt.geom.AffineTransform.TYPE_GENERAL_TRANSFORM))
+        != 0)
+      return false;
+    double sx = t.getScaleX();
+    double sy = t.getScaleY();
+    float cx = x;
+    int i = 0;
+    while (i < n)
+      {
+        int j = i + 1;
+        while (j < n && has[j] == has[i])
+          j++;
+        String run = text.substring(i, j);
+        if (has[i])
+          {
+            super.drawString(run, cx, y);
+            cx += (float) f.getStringBounds(run, frc).getWidth();
+          }
+        else
+          {
+            int[] dims = new int[3];
+            int[] cover = HaikuNative.textRender(run, (float) (f.getSize2D() * sy),
+                                                 f.isBold(), f.isItalic(), dims);
+            if (cover != null)
+              {
+                int dx = (int) Math.round(t.getTranslateX() + sx * cx);
+                int dy = (int) Math.round(t.getTranslateY() + sy * y) - dims[2];
+                blendCoverage(cover, dims[0], dims[1], dx, dy);
+                cx += dims[0] / sx;
+              }
+          }
+        i = j;
+      }
+    return true;
+  }
+
+  /** Blends the current colour through a coverage mask at (dx, dy). */
+  private void blendCoverage(int[] cover, int w, int h, int dx, int dy)
+  {
+    Color c = (Color) getPaint();
+    int rgb = c.getRGB();
+    int ca = c.getAlpha();
+    int cr = (rgb >> 16) & 0xff, cg = (rgb >> 8) & 0xff, cb = rgb & 0xff;
+    Rectangle area = new Rectangle(0, 0, image.getWidth(), image.getHeight());
+    java.awt.Shape clip = getClip();
+    if (clip != null)
+      area = area.intersection(getTransform().createTransformedShape(clip)
+                               .getBounds());
+    area = area.intersection(new Rectangle(dx, dy, w, h));
+    if (area.isEmpty())
+      return;
+    for (int yy = area.y; yy < area.y + area.height; yy++)
+      for (int xx = area.x; xx < area.x + area.width; xx++)
+        {
+          int a = cover[(yy - dy) * w + (xx - dx)] * ca / 255;
+          if (a == 0)
+            continue;
+          int k = yy * scan + xx;
+          int d = pixels[k];
+          int r = (cr * a + ((d >> 16) & 0xff) * (255 - a)) / 255;
+          int g = (cg * a + ((d >> 8) & 0xff) * (255 - a)) / 255;
+          int b = (cb * a + (d & 0xff) * (255 - a)) / 255;
+          int al = hasAlpha ? a + (((d >>> 24) * (255 - a)) / 255) : 0xff;
+          pixels[k] = (al << 24) | (r << 16) | (g << 8) | b;
+        }
+    markDirty(area.x, area.y, area.width, area.height);
+  }
+
   public Graphics create()
   {
     HaikuGraphics2D copy = (HaikuGraphics2D) super.create();

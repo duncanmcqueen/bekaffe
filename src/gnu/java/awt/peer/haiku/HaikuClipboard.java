@@ -39,16 +39,12 @@ package gnu.java.awt.peer.haiku;
 
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.ClipboardOwner;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
-import java.awt.datatransfer.UnsupportedFlavorException;
-import java.io.IOException;
 
 /**
- * The system clipboard, connected to Haiku's be_clipboard. Text is
- * exchanged with other applications as "text/plain" (UTF-8). Other
- * contents stay inside this Java application.
+ * The system clipboard, connected to Haiku's be_clipboard. Text, files,
+ * pictures and other MIME data are shared with other applications (see
+ * {@link HaikuTransferable}). Java objects stay inside this application.
  */
 final class HaikuClipboard
   extends Clipboard
@@ -62,25 +58,20 @@ final class HaikuClipboard
     super("System");
   }
 
-  /**
-   * Takes the text of the native clipboard if another application
-   * changed it.
-   */
+  /** Takes the native clipboard if another application changed it. */
   private void sync()
   {
     ClipboardOwner oldOwner = null;
     Transferable oldContents = null;
     synchronized (this)
       {
-        long now = HaikuNative.clipboardCount();
-        if (now == count)
+        if (HaikuNative.clipboardCount() == count)
           return;
-        count = now;
-        String text = HaikuNative.clipboardGetText();
+        count = HaikuNative.clipboardSnapshot();
         oldOwner = owner;
         oldContents = contents;
         owner = null;
-        contents = text != null ? new StringSelection(text) : null;
+        contents = HaikuTransferable.read(HaikuNative.SRC_CLIPBOARD);
       }
     if (oldOwner != null)
       oldOwner.lostOwnership(this, oldContents);
@@ -89,24 +80,8 @@ final class HaikuClipboard
   public synchronized void setContents(Transferable t, ClipboardOwner o)
   {
     super.setContents(t, o);
-    String text = null;
-    if (t != null && t.isDataFlavorSupported(DataFlavor.stringFlavor))
-      {
-        try
-          {
-            text = (String) t.getTransferData(DataFlavor.stringFlavor);
-          }
-        catch (UnsupportedFlavorException e)
-          {
-            // No text.
-          }
-        catch (IOException e)
-          {
-            // No text.
-          }
-      }
-    // Other applications see the text, or an empty clipboard.
-    count = HaikuNative.clipboardSetText(text != null ? text : "");
+    long msg = HaikuTransferable.toMessage(t, HaikuNative.B_MIME_DATA);
+    count = HaikuNative.clipboardPut(msg);
   }
 
   /** Also used by getAvailableDataFlavors() and getData(). */

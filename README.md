@@ -40,8 +40,21 @@ the 1999 screenshots show.
   need it.
 - Drawing is done in Java (`HaikuGraphics2D`) into a back buffer that is copied to a
   `BBitmap`. XOR mode is supported.
-- The system clipboard: text goes to and from other Haiku applications (`be_clipboard`,
-  UTF-8). The Command-X/C/V/A shortcuts work in text components.
+- The system clipboard: text, pictures (as an archived bitmap, like ShowImage, and as PNG),
+  files and other MIME data go to and from other Haiku applications (`be_clipboard`). The
+  Command-X/C/V/A shortcuts work in text components.
+- Drag and drop through Haiku's drag system: between Java components, from Tracker and
+  other applications into Java (files, text, pictures, MIME data), and from Java into
+  other applications (for example text into StyledEdit).
+- Printing with Haiku's print server: `Toolkit.getPrintJob()` and
+  `java.awt.print.PrinterJob`, with Haiku's page setup and print dialogs, or the default
+  settings when there is no dialog.
+- Input methods: composed text goes inline to components with `InputMethodRequests`;
+  other components get the confirmed text, and the composed text shows in a small window
+  below the caret. Characters that the Java fonts lack (Chinese, Japanese) are drawn with
+  Haiku's fonts.
+- Modal dialogs block input to the other windows of the application, and always-on-top
+  windows float above all windows.
 - Mouse cursors: all predefined `Cursor` types map to Haiku system cursors, and
   `Toolkit.createCustomCursor()` makes a native `BCursor`. The cursor follows the
   component under the mouse, as in other toolkits.
@@ -56,9 +69,10 @@ the 1999 screenshots show.
 - GNU Classpath build integration: a patch adds the peer to Classpath 0.98, with
   `configure --enable-haiku-peer` (on by default on Haiku).
 
-Not done yet: modal and always-on-top window feel, drag and drop, printing, input
-methods, and the system clipboard for non-text data. Rendering is pure Java and slow on
-Kaffe's interpreter.
+Not done yet: text is drawn by GNU Classpath's Java font engine, without anti-aliasing
+and with uneven spacing; Haiku's font engine would look much better. Rendering is pure
+Java and slow on Kaffe's interpreter. Drag and drop to other applications cannot tell the
+Java drag source whether the drop was accepted (it reports a copy).
 
 ## Contents
 
@@ -70,13 +84,13 @@ Kaffe's interpreter.
 | `src/resource/gnu/java/awt/font/fonts.properties` | Maps the Java logical fonts to the DejaVu fonts on Haiku. |
 | `src/applet/bekaffe/applet/` | Kaffe 1.0's AppletViewer, changed to work with Classpath (see below). |
 | `src/demos/` | Demo applets for the screenshots. |
-| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. |
+| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. |
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
 | `patches/kaffe/` | The Kaffe port to Haiku x86_64 (see below). |
 | `patches/classpath/` | Adds the peer to GNU Classpath 0.98, with fixes that Kaffe on Haiku needs. |
-| `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. |
+| `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. `msgtest.cpp` sends clicks and input method events straight to a Java window, and puts pictures on the clipboard. |
 | `screenshots/` | The 2026 screenshots, the comparisons, and the 1999 originals (`1999/`). |
 | `docs/development-notes.md` | Detailed working notes: design, Kaffe and Classpath bugs, and how the screenshots were made. |
 
@@ -104,7 +118,7 @@ For development there is a quicker loop that does not rebuild Classpath: copy `s
 the Haiku machine, set the paths at the top of `src/build.sh` and `src/run.sh` (they use
 `/boot/home/Projects/bekaffe`), and run `./build.sh`. The script compiles the peer into a
 `classes/` overlay that goes first on `BOOTCLASSPATH`, builds `lib/libhaikupeer.so`
-(`-lbe -ltracker -lmedia`), and compiles the tests and demos. Then run `./run.sh AwtWidgets`,
+(`-lbe -ltracker -lmedia -ltranslation`), and compiles the tests and demos. Then run `./run.sh AwtWidgets`,
 `./run.sh AwtExtras`, or `./run.sh bekaffe.applet.AppletViewer demos/TicTacToe/example1.html`.
 
 `docs/development-notes.md` has the full commands and the known problems.
@@ -126,7 +140,11 @@ The Kaffe patches are working-tree snapshots, not clean upstream patches.
   configure switch (it also makes HaikuToolkit the default toolkit and looks for socket
   functions in `libnetwork`), and `fonts-haiku.properties` (`OpenTypeFontPeer` now reads
   `fonts-<os.name>.properties` first). It also fixes `Frame.setState()`, which set the
-  opposite state, and has fixes for building and running on Haiku: lazy `Thread.locals`
+  opposite state, makes `PrinterJob.getPrinterJob()` use the `java.awt.printerjob`
+  property, implements `OpenTypeFontPeer.canDisplay()`, and fixes drag and drop
+  (`DragSource` reused its first drag context for every drag, the drop events rejected
+  all valid source actions, `DropTargetContext` returned no data flavors and no target
+  actions). It also has fixes for building and running on Haiku: lazy `Thread.locals`
   (Kaffe), the static field order in `ResolverCache`, `IFF_RUNNING`, a fallback when
   `gethostbyname_r` exists but is not declared, a `configure.ac` typo that made new autoconf
   versions miss `mmap`, and out-of-tree builds that put an empty sound mixer list in

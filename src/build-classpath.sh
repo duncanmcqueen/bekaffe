@@ -13,6 +13,8 @@ touch src/include/*.h; sleep 2
 touch src/aclocal.m4; sleep 2
 touch src/configure src/include/config.h.in; sleep 2
 find src -name Makefile.in -exec touch {} +
+# The release ships these; makeinfo of today fails on them.
+sleep 2; touch src/doc/*.info
 rm -rf build install && mkdir build && cd build
 echo "CONFIGURE start $(date)" >> ../status
 ../src/configure --prefix=$B/install --enable-jni --disable-examples \

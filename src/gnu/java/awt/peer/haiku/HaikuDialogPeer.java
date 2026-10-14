@@ -42,7 +42,12 @@ import java.awt.Dialog;
 import java.awt.peer.DialogPeer;
 
 /**
- * A Dialog backed by a titled BWindow. Modality is handled by AWT.
+ * A Dialog backed by a titled BWindow.
+ *
+ * GNU Classpath's Dialog.show() only blocks the caller. A shown modal
+ * dialog gets the modal app feel (it stays in front of the other windows
+ * of the application), and the event pump drops input to the windows it
+ * blocks.
  */
 public class HaikuDialogPeer
   extends HaikuWindowPeer
@@ -52,6 +57,34 @@ public class HaikuDialogPeer
   HaikuDialogPeer(Dialog d)
   {
     super(d);
+  }
+
+  boolean isModal()
+  {
+    return ((Dialog) getWindow()).isModal();
+  }
+
+  public void show()
+  {
+    if (isModal())
+      {
+        setModalShown(true);
+        HaikuEventPump.get().modalShown(this);
+      }
+    super.show();
+  }
+
+  public void hide()
+  {
+    HaikuEventPump.get().modalHidden(this);
+    setModalShown(false);
+    super.hide();
+  }
+
+  public void dispose()
+  {
+    HaikuEventPump.get().modalHidden(this);
+    super.dispose();
   }
 
   public void setTitle(String title)

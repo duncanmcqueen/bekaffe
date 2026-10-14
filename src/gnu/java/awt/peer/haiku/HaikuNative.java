@@ -67,6 +67,34 @@ final class HaikuNative
   static final int EV_STATE = 17;
   static final int EV_EDIT = 18;
   static final int EV_FILTER = 19;
+  static final int EV_DRAG = 20;
+  static final int EV_DROP = 21;
+  static final int EV_IM = 22;
+
+  // Transits of EV_DRAG.
+  static final int DRAG_ENTER = 1;
+  static final int DRAG_OVER = 2;
+  static final int DRAG_EXIT = 3;
+
+  // Message sources for msgTypes() and the other msg readers.
+  static final int SRC_CLIPBOARD = 0;
+  static final int SRC_DRAG = 1;
+  static final int SRC_DROP = 2;
+
+  // Message codes (AppDefs.h).
+  static final int B_SIMPLE_DATA = 0x44415441; // 'DATA'
+  static final int B_MIME_DATA = 0x4d494d45;   // 'MIME'
+
+  // Input method opcodes (Input.h).
+  static final int B_INPUT_METHOD_STARTED = 0;
+  static final int B_INPUT_METHOD_STOPPED = 1;
+  static final int B_INPUT_METHOD_CHANGED = 2;
+  static final int B_INPUT_METHOD_LOCATION_REQUEST = 3;
+
+  // Window feels (Window.h).
+  static final int B_NORMAL_WINDOW_FEEL = 0;
+  static final int B_MODAL_APP_WINDOW_FEEL = 1;
+  static final int B_FLOATING_ALL_WINDOW_FEEL = 6;
 
   // Commands of EV_EDIT (the Command-X/C/V/A shortcuts of a window).
   static final int EDIT_CUT = 1;
@@ -219,13 +247,92 @@ final class HaikuNative
   static native long cursorCreate(int[] pixels, int w, int h, int hotX,
                                   int hotY);
 
-  // System clipboard (text only).
+  static native void setFeel(long window, int feel);
 
-  /** Returns the new clipboard count. */
-  static native long clipboardSetText(String text);
+  // Messages for the clipboard and drag and drop.
 
-  static native String clipboardGetText();
+  static native long msgNew(int what);
+
+  static native void msgDelete(long msg);
+
+  static native void msgAddData(long msg, String mime, byte[] data);
+
+  static native void msgAddInt(long msg, String name, int value);
+
+  /** Adds a picture as an archived bitmap and as PNG. */
+  static native void msgAddImage(long msg, int[] argb, int w, int h);
+
+  /** Adds files as entry_refs ("refs"). */
+  static native void msgAddFiles(long msg, String[] paths);
 
   /** Changes each time any application writes to the clipboard. */
   static native long clipboardCount();
+
+  /** Replaces the clipboard with msg (deleted). Returns the new count. */
+  static native long clipboardPut(long msg);
+
+  /** Copies the clipboard into SRC_CLIPBOARD. Returns the count. */
+  static native long clipboardSnapshot();
+
+  static native int msgGeneration(int src);
+
+  /** MIME types, "refs" and archived bitmap names in a source. */
+  static native String[] msgTypes(int src);
+
+  static native byte[] msgData(int src, String mime);
+
+  /** The picture in a source as ARGB pixels; dims = width, height. */
+  static native int[] msgImage(int src, int[] dims);
+
+  static native String[] msgFiles(int src);
+
+  static native int msgInt(int src, String name, int def);
+
+  /**
+   * Drags msg (deleted) from a window: with the picture (mouse at offX,
+   * offY in it) or else the rectangle (x, y, w, h).
+   */
+  static native void dragStart(long window, long msg, int x, int y, int w,
+                               int h, int[] argb, int iw, int ih, int offX,
+                               int offY);
+
+  // Printing.
+
+  /** Returns 0 if the user cancelled a dialog. */
+  static native long printCreate(String name, boolean pageDialog,
+                                 boolean jobDialog);
+
+  /** page: the page setup dialog, else the print dialog. */
+  static native boolean printDialog(long job, boolean page);
+
+  /**
+   * out = paper l, t, r, b, printable l, t, r, b (points), first page,
+   * last page, x dpi, y dpi.
+   */
+  static native void printInfo(long job, float[] out);
+
+  static native boolean printBegin(long job);
+
+  /** One page of w x h ARGB pixels that fill the printable area. */
+  static native boolean printPage(long job, int[] argb, int w, int h);
+
+  static native void printEnd(long job, boolean commit);
+
+  // Input methods.
+
+  static native String imText(int windowId);
+
+  static native void imLocationReply(long window, int[] xs, int[] ys,
+                                     float height);
+
+  /**
+   * Draws text with Haiku's fonts. Returns its coverage (0..255) per
+   * pixel; dims = width, height, ascent.
+   */
+  static native int[] textRender(String text, float size, boolean bold,
+                                 boolean italic, int[] dims);
+
+  /** Shows composing text near (x, y) on the screen; null hides it. */
+  static native void imShowComposition(String text, int x, int y,
+                                       int selStart, int selEnd);
 }
