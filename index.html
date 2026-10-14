@@ -109,6 +109,32 @@
 <h1>BeKaffe News</h1>
 
 <!-- CONTENT -->
+<p class="date">Wednesday, October 14th, 2026</p>
+<div class="entry">
+  <p>Yesterday's list of things to do is done too:</p>
+  <ul>
+    <li><b>Modal dialogs</b> block the other windows of the program, and
+    <b>always-on-top</b> windows float above all windows.</li>
+    <li><b>Drag and drop</b> uses Haiku's own drag system. Drag files from Tracker into a
+    Java program, drag text from Java into StyledEdit, or drag between Java
+    components.</li>
+    <li><b>Printing</b> goes through the Haiku print server, with Haiku's page setup and
+    print dialogs, for both the old <code>PrintJob</code> and the Java 2
+    <code>PrinterJob</code>.</li>
+    <li><b>Input methods</b> work, and Chinese and Japanese characters are drawn with
+    Haiku's fonts.</li>
+    <li><b>The clipboard</b> now carries pictures, files and other data, not only
+    text.</li>
+  </ul>
+
+  <p>GNU Classpath also builds natively on Haiku now, and the patch fixes several old
+  Classpath bugs that stopped drag and drop and printing from working.</p>
+
+  <p><span class="warn">STILL TO DO:</span> Java text is drawn by GNU Classpath's own font
+  engine, without smoothing and with uneven spacing. Next, we want Haiku's font engine to
+  draw all Java text. Drawing is still slow on Kaffe's interpreter.</p>
+</div>
+
 <p class="date">Tuesday, October 13th, 2026 (evening)</p>
 <div class="entry">
   <p>The list of things to do from this morning is done:</p>
