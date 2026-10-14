@@ -40,25 +40,43 @@ the 1999 screenshots show.
   need it.
 - Drawing is done in Java (`HaikuGraphics2D`) into a back buffer that is copied to a
   `BBitmap`. XOR mode is supported.
+- The system clipboard: text goes to and from other Haiku applications (`be_clipboard`,
+  UTF-8). The Command-X/C/V/A shortcuts work in text components.
+- Mouse cursors: all predefined `Cursor` types map to Haiku system cursors, and
+  `Toolkit.createCustomCursor()` makes a native `BCursor`. The cursor follows the
+  component under the mouse, as in other toolkits.
+- Sound: `gnu.javax.sound.sampled.haiku` is a `javax.sound.sampled` mixer with `Clip` and
+  `SourceDataLine` lines that play through the Haiku media server (`BSoundPlayer`). It
+  plays 8 and 16 bit PCM, mu-law and a-law, mono and stereo, at any rate, with gap-free
+  loops and a master gain control. Applet sound (`AudioClip`, `.au` files) works.
+- FileDialog filters: a `FilenameFilter` decides which files the Haiku file panel shows.
+  A file name such as `*.txt;*.java` also works as a filter.
+- Minimize and zoom: `Frame.setExtendedState()` with `ICONIFIED`, `MAXIMIZED_BOTH` and
+  `NORMAL`. When the user minimizes or zooms the window, AWT gets the window state events.
+- GNU Classpath build integration: a patch adds the peer to Classpath 0.98, with
+  `configure --enable-haiku-peer` (on by default on Haiku).
 
-Not done yet: system clipboard, mouse cursors, audio, file name filters in FileDialog,
-minimize and zoom, modal window feel, and integration into the Classpath build.
+Not done yet: modal and always-on-top window feel, drag and drop, printing, input
+methods, and the system clipboard for non-text data. Rendering is pure Java and slow on
+Kaffe's interpreter.
 
 ## Contents
 
 | Path | Contents |
 |------|----------|
 | `src/gnu/java/awt/peer/haiku/` | The peer (Java). |
+| `src/gnu/javax/sound/sampled/haiku/` | The sound mixer (Java). |
 | `src/native/haiku-peer/` | The native library `libhaikupeer.so` (C++, Haiku API). |
 | `src/resource/gnu/java/awt/font/fonts.properties` | Maps the Java logical fonts to the DejaVu fonts on Haiku. |
 | `src/applet/bekaffe/applet/` | Kaffe 1.0's AppletViewer, changed to work with Classpath (see below). |
 | `src/demos/` | Demo applets for the screenshots. |
-| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. |
-| `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side. |
+| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. |
+| `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
+| `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
 | `patches/kaffe/` | The Kaffe port to Haiku x86_64 (see below). |
-| `patches/classpath/` | Fixes to GNU Classpath 0.98 that Kaffe on Haiku needs. |
-| `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. |
+| `patches/classpath/` | Adds the peer to GNU Classpath 0.98, with fixes that Kaffe on Haiku needs. |
+| `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. |
 | `screenshots/` | The 2026 screenshots, the comparisons, and the 1999 originals (`1999/`). |
 | `docs/development-notes.md` | Detailed working notes: design, Kaffe and Classpath bugs, and how the screenshots were made. |
 
@@ -69,20 +87,31 @@ You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
 1. Kaffe: clone `https://github.com/kaffe/kaffe`, apply `patches/kaffe/0001-haiku-x86_64-port.patch`
    and `0002-regenerated-configure.patch` with `git apply`, then configure and build with the
    interpreter engine.
-2. GNU Classpath 0.98: apply `patches/classpath/0001-kaffe-haiku-fixes.patch`. Configure
-   with JNI natives and without the GTK and Qt peers. Link the JNI libraries with
-   `-lnetwork`.
-3. The peer: copy `src/` to the Haiku machine, set the paths at the top of `src/build.sh`
-   and `src/run.sh` (they use `/boot/home/Projects/bekaffe`), and run `./build.sh`. The
-   script compiles the peer into a `classes/` overlay that goes first on `BOOTCLASSPATH`,
-   builds `lib/libhaikupeer.so` (`-lbe -ltracker`), and compiles the tests and demos.
-4. Run: `./run.sh AwtWidgets`, or `./run.sh bekaffe.applet.AppletViewer demos/TicTacToe/example1.html`.
+2. GNU Classpath 0.98: apply `patches/classpath/0001-haiku-peer-and-fixes.patch` with
+   `git apply`, then run `autoreconf -fi` (on any machine with autoconf, automake and
+   libtool; Haiku does not need libtool installed). Configure on Haiku with
+   `--enable-jni --disable-gtk-peer --disable-gconf-peer --disable-plugin --disable-gjdoc
+   --disable-examples` and build with `make`. `src/build-classpath.sh` does this (it also
+   fixes file times if the Haiku clock is behind the machine that ran autoreconf). The
+   Haiku peer is built by default on Haiku and is the default AWT toolkit;
+   `libhaikupeer.so` is in the native library directory with the other Classpath JNI
+   libraries.
+3. Run: put Classpath's `glibj.zip` on Kaffe's boot class path and the native library
+   directory on `KAFFELIBRARYPATH`, then run any AWT, Swing or sound program, with no extra
+   options. `src/run-classpath.sh <Class>` does this.
+
+For development there is a quicker loop that does not rebuild Classpath: copy `src/` to
+the Haiku machine, set the paths at the top of `src/build.sh` and `src/run.sh` (they use
+`/boot/home/Projects/bekaffe`), and run `./build.sh`. The script compiles the peer into a
+`classes/` overlay that goes first on `BOOTCLASSPATH`, builds `lib/libhaikupeer.so`
+(`-lbe -ltracker -lmedia`), and compiles the tests and demos. Then run `./run.sh AwtWidgets`,
+`./run.sh AwtExtras`, or `./run.sh bekaffe.applet.AppletViewer demos/TicTacToe/example1.html`.
 
 `docs/development-notes.md` has the full commands and the known problems.
 
 ## The Kaffe and Classpath patches
 
-These patches are working-tree snapshots, not clean upstream patches.
+The Kaffe patches are working-tree snapshots, not clean upstream patches.
 
 - `0001-haiku-x86_64-port.patch`: Haiku host detection (`config.guess`, `config.alias`), the
   `config/x86_64/haiku/` platform files, `SIGIO`, header fixes, and a fix in
@@ -92,16 +121,25 @@ These patches are working-tree snapshots, not clean upstream patches.
   The patch also has local workarounds: the version string is set to "Interpreter", and the
   shared library suffix is set to `.so`.
 - `0002-regenerated-configure.patch`: the `configure` script after the Haiku changes.
-- `patches/classpath/0001-kaffe-haiku-fixes.patch`: lazy `Thread.locals`, the static field
-  order in `ResolverCache`, and `IFF_RUNNING` for Haiku.
+- `patches/classpath/0001-haiku-peer-and-fixes.patch` is a clean patch for Classpath 0.98.
+  It adds the peer, the sound mixer and `native/jni/haiku-peer/`, the `--enable-haiku-peer`
+  configure switch (it also makes HaikuToolkit the default toolkit and looks for socket
+  functions in `libnetwork`), and `fonts-haiku.properties` (`OpenTypeFontPeer` now reads
+  `fonts-<os.name>.properties` first). It also fixes `Frame.setState()`, which set the
+  opposite state, and has fixes for building and running on Haiku: lazy `Thread.locals`
+  (Kaffe), the static field order in `ResolverCache`, `IFF_RUNNING`, a fallback when
+  `gethostbyname_r` exists but is not declared, a `configure.ac` typo that made new autoconf
+  versions miss `mmap`, and out-of-tree builds that put an empty sound mixer list in
+  `glibj.zip`. With the regenerated `config.sub`, configure runs natively as
+  `x86_64-unknown-haiku`.
 
 ## The applet viewer
 
 `src/applet/bekaffe/applet/` is `kaffe.applet.AppletViewer` from Kaffe 1.0. Kaffe does not
 load `kaffe.*` classes from the class path, so the package is now `bekaffe.applet`. Changes:
 `-x` and `-y` window position options, the Java 1.4 `AppletContext` stream methods, the
-applet gets its size before `init()`, a fix for the `documentBase` field, and a silent
-`AudioPlayer` that does not block.
+applet gets its size before `init()`, a fix for the `documentBase` field, and an
+`AudioPlayer` that plays applet sounds with `javax.sound.sampled`.
 
 ## Licenses
 

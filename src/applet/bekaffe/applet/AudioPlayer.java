@@ -1,34 +1,67 @@
 package bekaffe.applet;
 
-import java.lang.String;
 import java.applet.AudioClip;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.net.URL;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
 
+/**
+ * An applet audio clip played with javax.sound.sampled. The sound is
+ * loaded the first time it plays. If it cannot be loaded or there is no
+ * sound output, the clip is silent.
+ */
 public class AudioPlayer
   implements AudioClip
 {
-	boolean stop;
 	URL     url;
+	Clip    clip;
+	boolean failed;
 
 public AudioPlayer( URL url) {
 	this.url = url;
 }
 
+synchronized Clip getClip() {
+	if ( clip == null && !failed ) {
+		try {
+			AudioInputStream in = AudioSystem.getAudioInputStream( url);
+			Clip c = AudioSystem.getClip();
+			c.open( in);
+			in.close();
+			clip = c;
+		}
+		catch ( Exception x ) {
+			failed = true;
+		}
+	}
+	return clip;
+}
+
 public void loop() {
-	// AudioClip.loop() must not block; there is no audio output yet.
-	stop = false;
+	Clip c = getClip();
+	if ( c != null ) {
+		c.stop();
+		c.setFramePosition( 0);
+		c.loop( Clip.LOOP_CONTINUOUSLY);
+	}
 }
 
 public void play() {
-	// No audio output in the Haiku AWT peer yet.
+	Clip c = getClip();
+	if ( c != null ) {
+		c.stop();
+		c.setFramePosition( 0);
+		c.start();
+	}
 }
 
 public void stop() {
-	stop = true;
+	Clip c;
+	synchronized ( this ) {
+		c = clip;
+	}
+	if ( c != null )
+		c.stop();
 }
 }

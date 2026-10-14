@@ -51,6 +51,10 @@ import java.io.FilenameFilter;
  * The dialog's own window is never shown. FileDialog.show() blocks in
  * Dialog.show() until the panel closes; then {@link #panelClosed} stores
  * the result and hides the dialog, which makes show() return.
+ *
+ * A FilenameFilter is supported: the panel asks for each directory it
+ * shows (EV_FILTER), and {@link #filterRequested} answers for every name in
+ * it. Folders are always shown.
  */
 public class HaikuFileDialogPeer
   extends HaikuDialogPeer
@@ -62,12 +66,94 @@ public class HaikuFileDialogPeer
     super(fd);
   }
 
+  /** The filter of the open panel, or null. */
+  private volatile FilenameFilter activeFilter;
+
   public void show()
   {
     FileDialog fd = (FileDialog) getWindow();
+    FilenameFilter filter = fd.getFilenameFilter();
+    String file = fd.getFile();
+    // A file name such as "*.txt" or "*.gif;*.jpg" is used as a filter.
+    if (file != null && file.indexOf('*') >= 0)
+      {
+        if (filter == null)
+          filter = new GlobFilter(file);
+        file = null;
+      }
+    activeFilter = filter;
     HaikuNative.filePanelShow(id, fd.getMode() == FileDialog.SAVE,
-                              fd.getTitle(), fd.getDirectory(),
-                              fd.getFile());
+                              fd.getTitle(), fd.getDirectory(), file,
+                              filter != null);
+  }
+
+  /**
+   * Called by the event pump when the panel shows a directory that it has
+   * no answers for. Runs the FilenameFilter on every name in it.
+   */
+  void filterRequested()
+  {
+    String dir;
+    while ((dir = HaikuNative.filterNext(id)) != null)
+      {
+        File d = new File(dir);
+        String[] names = d.list();
+        if (names == null)
+          names = new String[0];
+        boolean[] accepted = new boolean[names.length];
+        FilenameFilter filter = activeFilter;
+        for (int i = 0; i < names.length; i++)
+          {
+            try
+              {
+                accepted[i] = filter == null || filter.accept(d, names[i]);
+              }
+            catch (RuntimeException e)
+              {
+                accepted[i] = true;
+              }
+          }
+        HaikuNative.filterAnswer(id, dir, names, accepted);
+      }
+  }
+
+  /** Matches names against patterns such as "*.txt;*.java". */
+  private static final class GlobFilter
+    implements FilenameFilter
+  {
+    private final java.util.regex.Pattern pattern;
+
+    GlobFilter(String globs)
+    {
+      StringBuilder re = new StringBuilder();
+      java.util.StringTokenizer t = new java.util.StringTokenizer(globs,
+                                                                  ";,");
+      while (t.hasMoreTokens())
+        {
+          String g = t.nextToken().trim();
+          if (re.length() > 0)
+            re.append('|');
+          for (int i = 0; i < g.length(); i++)
+            {
+              char c = g.charAt(i);
+              if (c == '*')
+                re.append(".*");
+              else if (c == '?')
+                re.append('.');
+              else if (Character.isLetterOrDigit(c))
+                re.append(c);
+              else
+                re.append('\\').append(c);
+            }
+        }
+      pattern = java.util.regex.Pattern.compile(re.toString(),
+                  java.util.regex.Pattern.CASE_INSENSITIVE);
+    }
+
+    public boolean accept(File dir, String name)
+    {
+      return pattern.matcher(name).matches();
+    }
   }
 
   public void hide()
@@ -114,7 +200,6 @@ public class HaikuFileDialogPeer
 
   public void setFilenameFilter(FilenameFilter filter)
   {
-    // TODO: A BRefFilter that calls back into Java is not possible
-    // without a native-to-Java call; the filter is ignored.
+    // Used the next time the panel opens.
   }
 }

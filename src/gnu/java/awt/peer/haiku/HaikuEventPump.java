@@ -43,10 +43,12 @@ import gnu.java.awt.ComponentReshapeEvent;
 import java.awt.AWTEvent;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Cursor;
 import java.awt.EventQueue;
 import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.ScrollPane;
+import java.awt.TextComponent;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.event.ComponentEvent;
@@ -118,6 +120,10 @@ final class HaikuEventPump
 
   /** Component under the mouse, for MOUSE_ENTERED / MOUSE_EXITED. */
   private Component hoverTarget;
+
+  /** Window and window coordinates of the last mouse position. */
+  private HaikuWindowPeer cursorPeer;
+  private int cursorX, cursorY;
 
   static synchronized HaikuEventPump get()
   {
@@ -229,6 +235,20 @@ final class HaikuEventPump
           ((HaikuFileDialogPeer) peer).panelClosed(ev[2] != 0);
         break;
 
+      case HaikuNative.EV_FILTER:
+        if (peer instanceof HaikuFileDialogPeer)
+          ((HaikuFileDialogPeer) peer).filterRequested();
+        break;
+
+      case HaikuNative.EV_STATE:
+        if (peer instanceof HaikuFramePeer)
+          ((HaikuFramePeer) peer).nativeStateChanged(ev[2] != 0, ev[3] != 0);
+        break;
+
+      case HaikuNative.EV_EDIT:
+        edit(w, ev[2], when);
+        break;
+
       case HaikuNative.EV_CLOSE:
         post(new WindowEvent(w, WindowEvent.WINDOW_CLOSING));
         break;
@@ -278,6 +298,14 @@ final class HaikuEventPump
 
       case HaikuNative.EV_MOUSE_MOVED:
         mouseMoved(w, ev[2] + in.left, ev[3] + in.top, ev[4], ev[5], when);
+        synchronized (this)
+          {
+            cursorPeer = peer;
+            cursorX = ev[2] + in.left;
+            cursorY = ev[3] + in.top;
+          }
+        if (ev[4] == 0)
+          updateCursor(peer, w, ev[2] + in.left, ev[3] + in.top);
         break;
 
       case HaikuNative.EV_MOUSE_ENTER:
@@ -338,6 +366,66 @@ final class HaikuEventPump
                            new Rectangle(0, 0, w.getWidth(), w.getHeight())));
         }
       });
+  }
+
+  /**
+   * The Command-X/C/V/A shortcuts of a Haiku window arrive as edit
+   * commands, not as keys. Post them as the Ctrl keys that Swing's text
+   * components use for cut, copy, paste and select all.
+   */
+  private static void edit(Window w, int command, long when)
+  {
+    int vk;
+    switch (command)
+      {
+      case HaikuNative.EDIT_CUT: vk = KeyEvent.VK_X; break;
+      case HaikuNative.EDIT_COPY: vk = KeyEvent.VK_C; break;
+      case HaikuNative.EDIT_PASTE: vk = KeyEvent.VK_V; break;
+      case HaikuNative.EDIT_SELECT_ALL: vk = KeyEvent.VK_A; break;
+      default: return;
+      }
+    int m = InputEvent.CTRL_DOWN_MASK | InputEvent.CTRL_MASK;
+    char c = (char) (vk - KeyEvent.VK_A + 1);
+    post(new KeyEvent(w, KeyEvent.KEY_PRESSED, when, m, vk, c));
+    post(new KeyEvent(w, KeyEvent.KEY_RELEASED, when, m, vk, c));
+  }
+
+  // Cursors.
+
+  /**
+   * Shows the cursor of the component at window point (x, y). AWT
+   * components inherit the cursor of their parent; text components show
+   * the text cursor unless a cursor was set.
+   */
+  private static void updateCursor(HaikuWindowPeer peer, Window w, int x,
+                                   int y)
+  {
+    Component c = w.findComponentAt(x, y);
+    if (c == null)
+      c = w;
+    Cursor cursor = c.getCursor();
+    if (c instanceof TextComponent && ! c.isCursorSet()
+        && cursor.getType() == Cursor.DEFAULT_CURSOR)
+      cursor = Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR);
+    peer.showCursor(cursor);
+  }
+
+  /**
+   * Shows the cursor again at the last mouse position. Called when a
+   * component cursor changed.
+   */
+  void refreshCursor()
+  {
+    HaikuWindowPeer p;
+    int x, y;
+    synchronized (this)
+      {
+        p = cursorPeer;
+        x = cursorX;
+        y = cursorY;
+      }
+    if (p != null && p.getWindow() != null)
+      updateCursor(p, p.getWindow(), x, y);
   }
 
   // Mouse handling.

@@ -64,6 +64,15 @@ final class HaikuNative
   static final int EV_MENU = 14;
   static final int EV_CHOICE = 15;
   static final int EV_FILE_PANEL = 16;
+  static final int EV_STATE = 17;
+  static final int EV_EDIT = 18;
+  static final int EV_FILTER = 19;
+
+  // Commands of EV_EDIT (the Command-X/C/V/A shortcuts of a window).
+  static final int EDIT_CUT = 1;
+  static final int EDIT_COPY = 2;
+  static final int EDIT_PASTE = 3;
+  static final int EDIT_SELECT_ALL = 4;
 
   // Menu kinds for menuCreate().
   static final int MENU_BAR = 0;
@@ -177,8 +186,46 @@ final class HaikuNative
 
   // File panels.
 
+  /** filtered: ask Java through EV_FILTER which files to show. */
   static native void filePanelShow(int id, boolean save, String title,
-                                   String dir, String file);
+                                   String dir, String file,
+                                   boolean filtered);
 
   static native String fileResult(int id);
+
+  /** The next directory a file panel wants filtered, or null. */
+  static native String filterNext(int id);
+
+  static native void filterAnswer(int id, String dir, String[] names,
+                                  boolean[] accepted);
+
+  // Frame state.
+
+  static native void setFrameState(long window, boolean minimized,
+                                   boolean zoomed);
+
+  /** out = minimized, zoomed. */
+  static native void getFrameState(long window, boolean[] out);
+
+  /** Largest outer size of a zoomed window; 0 for no limit. */
+  static native void setZoomLimits(long window, int w, int h);
+
+  // Cursors.
+
+  /** type is a java.awt.Cursor type; custom is 0 or from cursorCreate. */
+  static native void setCursor(long window, int type, long custom);
+
+  /** Makes a cursor from ARGB pixels. Returns 0 on failure. */
+  static native long cursorCreate(int[] pixels, int w, int h, int hotX,
+                                  int hotY);
+
+  // System clipboard (text only).
+
+  /** Returns the new clipboard count. */
+  static native long clipboardSetText(String text);
+
+  static native String clipboardGetText();
+
+  /** Changes each time any application writes to the clipboard. */
+  static native long clipboardCount();
 }

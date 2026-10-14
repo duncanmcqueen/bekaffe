@@ -109,6 +109,31 @@
 <h1>BeKaffe News</h1>
 
 <!-- CONTENT -->
+<p class="date">Tuesday, October 13th, 2026 (evening)</p>
+<div class="entry">
+  <p>The list of things to do from this morning is done:</p>
+  <ul>
+    <li><b>System clipboard.</b> Copy and paste text between Java programs and other
+    Haiku applications. Command-X, C, V and A work in text fields.</li>
+    <li><b>Mouse cursors.</b> All Java cursor types use the Haiku system cursors, and
+    programs can make their own cursors from images.</li>
+    <li><b>Sound.</b> A new <code>javax.sound.sampled</code> mixer plays through the
+    Haiku media server: clips with gap-free loops, streaming lines, and the old
+    8&nbsp;kHz mu-law <code>.au</code> sounds of the 1996 applets. TicTacToe can say
+    &ldquo;yahoo&rdquo; again.</li>
+    <li><b>FileDialog filters.</b> A <code>FilenameFilter</code>, or a name such as
+    <code>*.txt</code>, decides which files the Haiku file panel shows.</li>
+    <li><b>Minimize and zoom.</b> Programs can minimize, zoom and restore their frames,
+    and they get the window state events when the user does it.</li>
+    <li><b>GNU Classpath build.</b> A patch adds the peer to GNU Classpath 0.98.
+    <code>configure</code> now runs natively on Haiku, builds the peer, and makes it the
+    default AWT toolkit and sound mixer.</li>
+  </ul>
+
+  <p><span class="warn">STILL TO DO:</span> modal and always-on-top windows, drag and
+  drop, printing, and input methods. Drawing is still slow on Kaffe's interpreter.</p>
+</div>
+
 <p class="date">Tuesday, October 13th, 2026</p>
 <div class="entry">
   <p>The last BeKaffe news, in August 2000, said that work was focused on a native widgets

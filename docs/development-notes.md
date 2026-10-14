@@ -3,6 +3,66 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-13, evening): clipboard, cursors, sound, filters, frame state, Classpath build
+
+- **Clipboard:** `HaikuClipboard` (Toolkit.getSystemClipboard) writes text to `be_clipboard`
+  as `text/plain` UTF-8 and takes text that other apps put there (it compares
+  `be_clipboard->SystemCount()`; the old owner gets `lostOwnership`). Window shortcuts
+  Command-X/C/V/A arrive as `B_CUT`/`B_COPY`/`B_PASTE`/`B_SELECT_ALL`, not as keys; the native
+  view posts `EV_EDIT` and the pump posts Ctrl+X/C/V/A, which Swing text components use.
+  Tested both ways with the Haiku `clipboard` CLI (non-BMP characters too).
+- **Cursors:** the pump finds the component under the mouse (`Window.findComponentAt`) on each
+  move and calls `HaikuWindowPeer.showCursor` (native `SetViewCursor` with a cached
+  `BCursor(BCursorID)`). AWT text components get the I-beam. `setCursor` on any peer re-checks
+  at the last mouse position. `createCustomCursor` makes a `BCursor` from a `B_RGBA32` bitmap
+  (`HaikuCursor`). Note: Haiku's *default* cursor is the pointing hand.
+- **Frame state:** `PeerWindow` overrides `Minimize` and `Zoom` (own toggle; a user resize
+  ends the zoomed state) and posts `EV_STATE`; `HaikuFramePeer.nativeStateChanged` posts
+  `WINDOW_ICONIFIED`/`DEICONIFIED`/`WINDOW_STATE_CHANGED`. `getState()` asks the native
+  window. `setMaximizedBounds` -> `SetZoomLimits`. Classpath's `Frame.setState()` had the
+  states swapped (fixed in the Classpath patch; `setExtendedState` was fine).
+- **FileDialog filter:** `JRefFilter` (a `BRefFilter`) runs in the panel thread. For each new
+  directory it queues a request, posts `EV_FILTER` and waits (3 s timeout = show all).
+  `HaikuFileDialogPeer.filterRequested` runs the `FilenameFilter` on every name and answers
+  with `filterAnswer`. Folders, volumes and links always show. A file name with `*` (e.g.
+  `*.txt;*.java`) becomes a glob filter.
+- **Sound:** `gnu.javax.sound.sampled.haiku` (`HaikuMixerProvider`, listed in
+  `META-INF/services`): `HaikuClip` and `HaikuSourceDataLine` over one `BSoundPlayer` each
+  (`-lmedia`). Java converts to 16-bit PCM (`Pcm`: 8/16-bit signed/unsigned, both byte
+  orders, mu-law, a-law). The native callback does clip loops and the stream ring buffer.
+  Classpath's `AudioSystem.getClip()` takes a Clip from `Mixer.getSourceLines()`, so the
+  mixer returns new lines there. The applet viewer's `AudioPlayer` now uses
+  `AudioSystem.getClip()`. Waits use native condition variables (Kaffe's `Thread.sleep`
+  returns early). Verified: clip 1000 ms, loop of 2 extra half-seconds = 1.93 s, stream of
+  22050 frames in 1008 ms, TicTacToe `yahoo1.au` (8 kHz mu-law) plays to the last frame.
+  **Not heard:** QEMU's audio stream from the VM carries only zeros, also for a native
+  `BSoundPlayer` tone (`tools/tonetest.cpp`), so the VM's AC'97 output is silent (mixer
+  muted or driver issue). Not investigated, to leave the shared VM's settings alone.
+- **Classpath build:** `cp-work/classpath-0.98` is a git repo (pristine 0.98 + one commit).
+  Patch: `github/bekaffe/patches/classpath/0001-haiku-peer-and-fixes.patch`. It adds the
+  sources, `native/jni/haiku-peer/Makefile.am`, `configure --enable-haiku-peer` (default on
+  `haiku*`; also sets the default toolkit and `@HAIKU_MIXER_PROVIDER@`),
+  `AC_SEARCH_LIBS(inet_pton, nsl network)`, `fonts-haiku.properties` (`OpenTypeFontPeer`
+  tries `fonts-<os.name>.properties` first), and a `cpnet.c` fallback when
+  `gethostbyname_r` is in a library but not declared (Haiku). Run `autoreconf -fi` on the
+  host (autoconf 2.73, automake 1.19, libtool 2.6); the VM has no libtool. With the new
+  `config.sub`, configure runs natively (`x86_64-unknown-haiku`), no `--build=linux` trick.
+  VM build: `/boot/home/Projects/bekaffe/cp-haiku/{src,build,install}`, script
+  `cp-haiku/build-cp.sh` (status file `cp-haiku/status`). The VM clock is ~5 h behind the
+  host, so the script touches inputs, then generated files, before configure.
+- **Classpath build result:** clean build from scratch OK (`cp-haiku/status` = DONE), and
+  `run-classpath.sh AwtExtras clip cbtest` works with no overlay and no `-Dawt.toolkit`.
+  Fixes found on the way (all in the patch): Haiku declares no `gethostbyname_r` but
+  `libnetwork` has it (`cpnet.c` fallback); `configure.ac` had `statvfs \` + two spaces, so
+  autoconf 2.73 checked for " mmap" and fonts failed ("memory-mapped files not
+  implemented"); out-of-tree builds copied the stale empty `MixerProvider` service file from
+  the source tree (`lib/Makefile.am` now copies configure's output); Classpath's JNI check
+  needs `include/<class>.h` for every class with natives (made with OpenJDK 8 `javah`). The
+  new build also detects all socket functions, which the old `--build=linux` build missed.
+- **Shared VM:** other agents (opencode) use the same VM; keep GUI input to your own windows
+  and prefer argument-driven tests (`AwtExtras cbtest|states|clip|loop|stream|filter|glob|au:FILE`).
+- Still not done: modal/always-on-top window feel, drag and drop, printing, input methods.
+
 ## UPDATE (2026-10-13): all AWT widgets work; bekaffe.sourceforge.net screenshots recreated
 
 - **Every peer is implemented.** Native Haiku parts: MenuBar/Menu/MenuItem/CheckboxMenuItem

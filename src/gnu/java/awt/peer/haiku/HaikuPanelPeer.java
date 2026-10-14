@@ -85,4 +85,11 @@ public class HaikuPanelPeer
     g.setColor(bg);
     g.fillRect(clip.x, clip.y, clip.width, clip.height);
   }
+
+  /** Shows the new cursor if the mouse is over this component. */
+  public void setCursor(java.awt.Cursor cursor)
+  {
+    super.setCursor(cursor);
+    HaikuEventPump.get().refreshCursor();
+  }
 }

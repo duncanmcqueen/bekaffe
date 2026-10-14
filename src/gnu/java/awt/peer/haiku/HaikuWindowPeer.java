@@ -42,6 +42,7 @@ import gnu.java.awt.peer.ClasspathFontPeer;
 import gnu.java.awt.peer.swing.SwingWindowPeer;
 
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dialog;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -381,6 +382,38 @@ public class HaikuWindowPeer
   public void setFont(Font f)
   {
     peerFont = f;
+  }
+
+  /** The cursor type and custom cursor shown in the native window. */
+  private int shownCursorType = Cursor.DEFAULT_CURSOR;
+  private long shownCursorHandle;
+
+  /**
+   * Shows a cursor in the native window. The event pump calls this when
+   * the mouse moves to a component with another cursor.
+   */
+  void showCursor(Cursor c)
+  {
+    int type = c.getType();
+    long custom = c instanceof HaikuCursor ? ((HaikuCursor) c).handle : 0;
+    synchronized (this)
+      {
+        if (disposed
+            || (type == shownCursorType && custom == shownCursorHandle))
+          return;
+        shownCursorType = type;
+        shownCursorHandle = custom;
+      }
+    HaikuNative.setCursor(handle, type, custom);
+  }
+
+  /**
+   * Called by Component.setCursor() for this window and its lightweight
+   * children. The cursor of the component under the mouse is shown.
+   */
+  public void setCursor(Cursor cursor)
+  {
+    HaikuEventPump.get().refreshCursor();
   }
 
   public void toBack()

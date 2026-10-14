@@ -54,6 +54,7 @@ import java.awt.Canvas;
 import java.awt.Checkbox;
 import java.awt.CheckboxMenuItem;
 import java.awt.Choice;
+import java.awt.Cursor;
 import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.EventQueue;
@@ -70,6 +71,7 @@ import java.awt.Menu;
 import java.awt.MenuBar;
 import java.awt.MenuItem;
 import java.awt.Panel;
+import java.awt.Point;
 import java.awt.PopupMenu;
 import java.awt.PrintJob;
 import java.awt.ScrollPane;
@@ -520,12 +522,41 @@ public class HaikuToolkit
     HaikuNative.beep();
   }
 
+  /** The system clipboard, shared with other Haiku applications. */
   public synchronized Clipboard getSystemClipboard()
   {
-    // TODO: Connect to be_clipboard.
     if (clipboard == null)
-      clipboard = new Clipboard("Haiku");
+      {
+        HaikuNative.ensureInitialized();
+        clipboard = new HaikuClipboard();
+      }
     return clipboard;
+  }
+
+  public Cursor createCustomCursor(Image cursor, Point hotSpot, String name)
+  {
+    HaikuNative.ensureInitialized();
+    return new HaikuCursor(cursor, hotSpot, name);
+  }
+
+  /** Haiku cursors can have any size; keep them reasonable. */
+  public Dimension getBestCursorSize(int w, int h)
+  {
+    return new Dimension(Math.max(1, Math.min(w, 64)),
+                         Math.max(1, Math.min(h, 64)));
+  }
+
+  public int getMaximumCursorColors()
+  {
+    return 1 << 24;
+  }
+
+  /** Haiku windows can be minimized and zoomed. */
+  public boolean isFrameStateSupported(int state)
+  {
+    return state == Frame.NORMAL || state == Frame.ICONIFIED
+           || state == Frame.MAXIMIZED_BOTH
+           || state == (Frame.ICONIFIED | Frame.MAXIMIZED_BOTH);
   }
 
   protected synchronized EventQueue getSystemEventQueueImpl()

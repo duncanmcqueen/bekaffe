@@ -42,6 +42,7 @@ import java.awt.Frame;
 import java.awt.Image;
 import java.awt.MenuBar;
 import java.awt.Rectangle;
+import java.awt.event.WindowEvent;
 import java.awt.peer.FramePeer;
 
 /**
@@ -58,6 +59,8 @@ public class HaikuFramePeer
     MenuBar mb = f.getMenuBar();
     if (mb != null)
       setMenuBar(mb);
+    if (f.getMaximizedBounds() != null)
+      setMaximizedBounds(f.getMaximizedBounds());
   }
 
   public void setIconImage(Image image)
@@ -83,19 +86,71 @@ public class HaikuFramePeer
     super.setTitle(title);
   }
 
+  /** The AWT state of the native window. */
   public int getState()
   {
-    return Frame.NORMAL;
+    boolean[] st = new boolean[2];
+    HaikuNative.getFrameState(handle, st);
+    return toAWTState(st[0], st[1]);
   }
 
+  private static int toAWTState(boolean minimized, boolean zoomed)
+  {
+    int state = Frame.NORMAL;
+    if (minimized)
+      state |= Frame.ICONIFIED;
+    if (zoomed)
+      state |= Frame.MAXIMIZED_BOTH;
+    return state;
+  }
+
+  /**
+   * Minimizes, restores or zooms the window. Haiku has one zoomed state,
+   * so MAXIMIZED_HORIZ and MAXIMIZED_VERT zoom the window too.
+   */
   public void setState(int state)
   {
-    // TODO: Minimize()/Zoom().
+    // The native window reports the change with EV_STATE, which posts
+    // the window events.
+    HaikuNative.setFrameState(handle, (state & Frame.ICONIFIED) != 0,
+                              (state & Frame.MAXIMIZED_BOTH) != 0);
+  }
+
+  /** The state last reported to AWT. */
+  private int lastState = Frame.NORMAL;
+
+  /**
+   * Called by the event pump when the window was minimized, restored or
+   * zoomed. Posts the matching window events.
+   */
+  void nativeStateChanged(boolean minimized, boolean zoomed)
+  {
+    int state = toAWTState(minimized, zoomed);
+    int old;
+    synchronized (this)
+      {
+        old = lastState;
+        if (state == old)
+          return;
+        lastState = state;
+      }
+    Frame f = (Frame) getWindow();
+    java.awt.EventQueue q = java.awt.Toolkit.getDefaultToolkit()
+                            .getSystemEventQueue();
+    if ((state & Frame.ICONIFIED) != (old & Frame.ICONIFIED))
+      q.postEvent(new WindowEvent(f, (state & Frame.ICONIFIED) != 0
+                                     ? WindowEvent.WINDOW_ICONIFIED
+                                     : WindowEvent.WINDOW_DEICONIFIED));
+    q.postEvent(new WindowEvent(f, WindowEvent.WINDOW_STATE_CHANGED, old,
+                                state));
   }
 
   public void setMaximizedBounds(Rectangle r)
   {
-    // TODO: SetZoomLimits().
+    if (r == null)
+      HaikuNative.setZoomLimits(handle, 0, 0);
+    else
+      HaikuNative.setZoomLimits(handle, r.width, r.height);
   }
 
   public boolean isRestackSupported()

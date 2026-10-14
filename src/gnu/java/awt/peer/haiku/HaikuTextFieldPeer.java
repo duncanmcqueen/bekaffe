@@ -69,4 +69,11 @@ public class HaikuTextFieldPeer
         }
       });
   }
+
+  /** Shows the new cursor if the mouse is over this component. */
+  public void setCursor(java.awt.Cursor cursor)
+  {
+    super.setCursor(cursor);
+    HaikuEventPump.get().refreshCursor();
+  }
 }
