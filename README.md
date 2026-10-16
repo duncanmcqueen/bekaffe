@@ -9,6 +9,9 @@ AWT and Swing programs and JDK 1.0/1.1 applets run in native Haiku windows.
   ([kaffe/kaffe](https://github.com/kaffe/kaffe)) is archived. BeKaffe uses the fork
   [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe) (`haiku` branch), which has
   the Haiku port and fixes for memory-safety vulnerabilities.
+- Alternative VM (work in progress): [JamVM](https://github.com/ingelabs/jamvm), ported to
+  Haiku x86_64. It runs the same Classpath build and peer, and is 17 to 36 times faster than
+  Kaffe. See [JamVM](#jamvm-work-in-progress).
 - Class library: GNU Classpath 0.98.
 - The peer is `gnu.java.awt.peer.haiku`. Select it with
   `-Dawt.toolkit=gnu.java.awt.peer.haiku.HaikuToolkit`.
@@ -97,8 +100,10 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. `CliTest` checks a Kaffe + Classpath build without a GUI. `FixTests` checks the Kaffe memory-safety fixes (compile it with `-source 1.5 -target 1.5 -encoding UTF-8`). `DrawBench` times drawing operations; `ClipTest` draws through a clip that is not a rectangle. |
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
+| `src/build-jamvm.sh`, `src/run-jamvm.sh` | Build JamVM on Haiku against that Classpath build, and run with JamVM. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
 | `patches/kaffe/` | The Kaffe port to Haiku x86_64 and the memory-safety fixes, as patches. The same changes are on the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe). |
+| `patches/jamvm/` | The JamVM port to Haiku x86_64, and a fix that stops user class loaders from defining `java.*` classes. Offered upstream as [ingelabs/jamvm#25](https://github.com/ingelabs/jamvm/pull/25) and [#24](https://github.com/ingelabs/jamvm/pull/24). |
 | `patches/classpath-ingelabs/` | Adds the peer to [ingelabs/classpath](https://github.com/ingelabs/classpath), with fixes that Kaffe on Haiku needs. |
 | `patches/classpath-0.98/` | The same for the GNU Classpath 0.98 release. |
 | `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. `msgtest.cpp` sends clicks and input method events straight to a Java window, and puts pictures on the clipboard. |
@@ -155,6 +160,53 @@ the Haiku machine, set the paths at the top of `src/build.sh` and `src/run.sh` (
 `./run.sh AwtExtras`, or `./run.sh bekaffe.applet.AppletViewer demos/TicTacToe/example1.html`.
 
 `docs/development-notes.md` has the full commands and the known problems.
+
+## JamVM (work in progress)
+
+[JamVM](https://github.com/ingelabs/jamvm) is a small Java VM for GNU Classpath. Its
+fastest interpreter mode joins the machine code of the bytecodes in each block. JamVM's
+README says that this is about as fast as a simple JIT. Kaffe is archived; ingelabs maintains JamVM, and also the Classpath version
+that BeKaffe uses. JamVM uses the same Classpath build as Kaffe, and the peer does not
+change: it uses only standard JNI.
+
+To build it:
+
+1. Build GNU Classpath as in step 1 above.
+2. Clone [ingelabs/jamvm](https://github.com/ingelabs/jamvm) (tested at commit bba91d8),
+   apply the patches in `patches/jamvm/` with `git am`, and run `./autogen.sh` and then
+   `make distclean` on any machine with autoconf, automake and libtool. Copy the tree to
+   Haiku as `jamvm/` in the work directory. Copy files, not links: `autogen.sh` can make
+   symbolic links to the host's automake files (use `tar -h`).
+3. Build with `src/build-jamvm.sh` (set `B` and `CP_INSTALL` if your directories differ).
+   It installs to `jamvm-install/`.
+4. Run: `src/run-jamvm.sh <Class>`. JamVM finds `glibj.zip` from its configure setting,
+   and the JNI libraries through `LIBRARY_PATH`.
+
+Results on Haiku R1/beta6 x86_64 (2026-10-16):
+
+- AWT and Swing programs, the applet viewer and the demo applets, input events, and sound
+  work. `FixTests` and `CliTest` pass. `DrawBench` draws the same pixels as on Kaffe.
+- A thread and garbage collector stress test (16 threads) passed 10 runs of 10.
+- Speed against Kaffe: a CPU benchmark is 17 times faster (362 ms against 6347 ms),
+  the stress test 36 times (6.5 s against 235 s), and `DrawBench` 20 times (2.8 s against 57 s).
+- Kaffe's regression suite: 129 of 149 tests pass. Kaffe passes 137. (`RefTest` sometimes
+  fails on JamVM: it exits before the finalizer thread can print, and Java does not
+  promise that finalizers run before exit.) Most of the
+  differences are exception messages and stack trace formats that the expected output takes
+  from Kaffe, and tests of Kaffe internals. JamVM passes `WaitTest`, `PropertiesTest`,
+  `DateFormatTest` and `SecureRandomTest`, which fail on Kaffe.
+- `SecurityMan` hangs on JamVM and also on OpenJDK 8. The test asks for a class that does
+  not exist, from a security manager. With two class path entries, each lookup checks files,
+  which calls the security manager again.
+- `ProhibitedClass` failed: a user class loader could define `java.lang.Object`.
+  `patches/jamvm/0002` fixes this. JamVM now throws the same `SecurityException` as
+  OpenJDK ("Prohibited package name").
+
+The patches are offered upstream: [#25](https://github.com/ingelabs/jamvm/pull/25) (Haiku
+support) and [#24](https://github.com/ingelabs/jamvm/pull/24) (the `java.*` check).
+
+Not done yet: a JamVM security review like the one for Kaffe, and a check of
+`ExceptionTestClassLoader2` and `ReflectInterfaces`.
 
 ## The Kaffe and Classpath patches
 

@@ -3,6 +3,50 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-16): JamVM as a second VM
+
+[ingelabs/jamvm](https://github.com/ingelabs/jamvm) (JamVM 2.1.0, commit bba91d8) builds
+and runs on Haiku x86_64 with two patches, in `patches/jamvm/`:
+
+- `0001`: Haiku host support. `configure.ac` gets an `x86_64-*-haiku*` case (no libdl).
+  `src/os/haiku/os.c` gets the stack base, CPU count and memory size from
+  `get_thread_info()` and `get_system_info()`, and uses `LIBRARY_PATH`.
+  `src/os/haiku/x86_64/` is a copy of `src/os/bsd/x86_64/` (same calling convention).
+  `class.c` needs `__HAIKU__` in the `scandir()` filter declaration.
+- `0002`: JamVM let a user class loader define `java.lang.Object` and other `java.*`
+  classes (Kaffe's `ProhibitedClass` test). Classpath documents the `SecurityException`
+  but leaves the check to the VM. The check is now in `parseClass()`, before the special
+  handling that the parser gives some `java.lang` classes by name. The result is the same as
+  OpenJDK 8 for named and unnamed `defineClass()` calls, and `Proxy` still works.
+
+Build notes: `autogen.sh` on the host leaves symbolic links to the host's automake files, so
+copy the tree with `tar -h`. The JamVM class library is compiled with the OpenJDK 8
+`javac` on Haiku. The default interpreter
+(inlining, direct, threaded, with run-time relocation checks) works.
+
+Tests: `jt/Stress.java` (16 threads that allocate, wait/notify, interrupt, timed wait,
+finalizers, NPE, array bounds, stack overflow) passed 10 of 10 runs. `FixTests`,
+`AwtWidgets` and `SwingTest` with input from QMP, four demo applets and a `javax.sound`
+tone (44100 frames in 1.02 s) work. `DrawBench` checksums are the same as on Kaffe.
+
+Kaffe's regression suite runs on JamVM with
+`make check SETUP_ENVIRONMENT="env CLASSPATH=. JAVA=<run script> ..."`. It passes 129 of 149.
+The failures that are left:
+
+- Expected output that is Kaffe's text: `IndexTest`, `StackDump`, `GetField`, `CLTest`,
+  `CLTestConc`, `CLTestLie`, `UncaughtException`, `ProcessClassTest`.
+- Kaffe internals: `KaffeInternal`.
+- The same as on Kaffe: `UDPTest`, `LoaderTest`, `InterfaceSuperClass`, `ImplementClass`,
+  `FieldErrors`, `MethodErrors`.
+- `SecurityMan`: also hangs on OpenJDK 8. Its security manager calls
+  `Class.forName("java.security.RuntimePermission")`, a class that does not exist. The
+  application class loader then calls `File.exists()` for each class path entry, which calls
+  the security manager again. With one class path entry it ends; with two (`.:run_time` in
+  the test harness) the work grows very quickly.
+- `RefTest`: it exits before the finalizer thread prints, about one run in three.
+- To check: `ExceptionTestClassLoader2` (an `ArrayIndexOutOfBoundsException: 1 >= 1`) and
+  `ReflectInterfaces` (interface methods are listed twice).
+
 ## UPDATE (2026-10-16): Kaffe memory-safety fixes
 
 [OpenAnt](https://github.com/knostic/OpenAnt) (an LLM security scanner, run with a local

@@ -90,6 +90,7 @@
     <a href="https://github.com/duncanmcqueen/bekaffe/issues">Bug Database</a><br>
     <a href="https://github.com/duncanmcqueen/bekaffe/blob/main/docs/development-notes.md">Developer notes</a><br>
     <a href="https://github.com/duncanmcqueen/kaffe">Kaffe (fork)</a><br>
+    <a href="https://github.com/ingelabs/jamvm">JamVM</a><br>
     <a href="https://www.gnu.org/software/classpath/">GNU Classpath</a><br>
     <a href="https://www.haiku-os.org/">Haiku</a>
   </nav>
@@ -109,6 +110,26 @@
 <h1>BeKaffe News</h1>
 
 <!-- CONTENT -->
+<p class="date">Friday, October 16th, 2026</p>
+<div class="entry">
+  <p><b>Work has started on a second VM: JamVM.</b> Kaffe is archived, and its interpreter is
+  slow. <a href="https://github.com/ingelabs/jamvm">JamVM</a> is a small VM for GNU
+  Classpath that ingelabs still maintains. It now runs on Haiku x86_64, with the same
+  Classpath build and the same Haiku peer: AWT and Swing programs, the demo applets and
+  sound all work. A CPU benchmark runs 17 times faster than on Kaffe, a thread stress test
+  36 times faster, and the drawing benchmark 20 times faster, with the same pixels.</p>
+
+  <div class="shot">
+    <img style="max-width:642px;margin:0 auto" src="screenshots/jamvm-awt.png" alt="The AWT widgets test with its File menu open, running on JamVM on Haiku" width="642" height="418">
+    <p>The AWT widgets test on JamVM.</p>
+  </div>
+
+  <p>The <a href="https://github.com/ingelabs/jamvm/pull/25">Haiku port</a> is offered to
+  JamVM upstream, together with a <a href="https://github.com/ingelabs/jamvm/pull/24">security
+  fix</a> found during the tests: a program could define its own <code>java.lang</code> classes. Kaffe stays
+  the default VM for now. The README tells how to build and run JamVM.</p>
+</div>
+
 <p class="date">Wednesday, October 14th, 2026 (night)</p>
 <div class="entry">
   <p><b>Shapes and images are now drawn in native code.</b> Until now, GNU Classpath drew

@@ -4,7 +4,8 @@ set -e
 B=/boot/home/Projects/bekaffe
 P=$B/haiku-peer
 GLIBJ=$B/cp-098-jni/lib/glibj.zip
-KINC=$B/checkout/kaffe-latest/include
+# jni.h: any VM or Classpath copy works; Classpath installs one.
+JNI_INC=${JNI_INC:-$B/cp-ingelabs/install/include}
 JAVAC=/boot/system/lib/openjdk8/bin/javac
 cd $P
 rm -rf classes && mkdir -p classes lib
@@ -16,7 +17,7 @@ cp -r resource/gnu resource/META-INF classes/
 ${JAVAC%javac}javah -jni -d native/haiku-peer -bootclasspath classes:$GLIBJ \
   gnu.java.awt.peer.haiku.HaikuNative gnu.java.awt.peer.haiku.HaikuRaster \
   gnu.javax.sound.sampled.haiku.HaikuAudio
-g++ -shared -fPIC -O2 -Wall -Wno-unused-parameter -I$KINC \
+g++ -shared -fPIC -O2 -Wall -Wno-unused-parameter -I$JNI_INC \
   -o lib/libhaikupeer.so native/haiku-peer/gnu_java_awt_peer_haiku_HaikuNative.cpp \
   native/haiku-peer/gnu_java_awt_peer_haiku_HaikuRaster.cpp -lbe -ltracker -lmedia -ltranslation
 mkdir -p testclasses

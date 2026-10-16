@@ -1,0 +1,80 @@
+From 4b1c1286f98ee8dfc027761dcaaa9cdd7d6441d3 Mon Sep 17 00:00:00 2001
+From: Duncan McQueen <dwmcqueen@gmail.com>
+Date: Fri, 16 Oct 2026 17:47:22 -0500
+Subject: [PATCH] Do not let user class loaders define classes in java.*
+
+A class loader other than the bootstrap loader could define a class in
+a java.* package, for example java.lang.Object. The parser also gives
+some java.lang classes special handling by name before the class is
+registered. HotSpot rejects these classes with a SecurityException
+("Prohibited package name"), and Classpath's ClassLoader.defineClass()
+documents the same exception but leaves the check to the VM.
+
+Check the class name in parseClass(), after it is read from the class
+file, and throw a SecurityException if a non-bootstrap loader defines a
+class in java.*. The check also covers defineClass() calls without a
+name, because it uses the name from the class file.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/class.c  | 18 ++++++++++++++++++
+ src/excep.h  |  1 +
+ src/symbol.h |  1 +
+ 3 files changed, 20 insertions(+)
+
+diff --git a/src/class.c b/src/class.c
+index 439be20..66078b1 100644
+--- a/src/class.c
++++ b/src/class.c
+@@ -366,6 +366,24 @@ Class *parseClass(char *classname, char *data, int offset, int len,
+         return NULL;
+     }
+ 
++    /* Only the bootstrap loader can define classes in the java.*
++       packages.  Check this before the class gets the special handling
++       that some java.lang classes get by name. */
++    if(class_loader != NULL && strncmp(classblock->name, "java/", 5) == 0) {
++        int pkg_len = strrchr(classblock->name, '/') - classblock->name;
++        char message[pkg_len + sizeof("Prohibited package name: ")];
++        char *pntr;
++
++        sprintf(message, "Prohibited package name: %.*s", pkg_len,
++                classblock->name);
++        for(pntr = message; *pntr; pntr++)
++            if(*pntr == '/')
++                *pntr = '.';
++
++        signalException(java_lang_SecurityException, message);
++        return NULL;
++    }
++
+     prepareClass(class);
+ 
+     if(classblock->name == SYMBOL(java_lang_Object)) {
+diff --git a/src/excep.h b/src/excep.h
+index cb0de5b..65b4d49 100644
+--- a/src/excep.h
++++ b/src/excep.h
+@@ -30,6 +30,7 @@
+     action(java_lang_InstantiationError), \
+     action(java_lang_IllegalAccessError), \
+     action(java_lang_ClassCastException), \
++    action(java_lang_SecurityException), \
+     action(java_lang_StackOverflowError), \
+     action(java_lang_ArithmeticException), \
+     action(java_lang_AbstractMethodError), \
+diff --git a/src/symbol.h b/src/symbol.h
+index b910dd5..98e15ae 100644
+--- a/src/symbol.h
++++ b/src/symbol.h
+@@ -137,6 +137,7 @@ extern char *symbol_values[];
+     action(java_lang_NoSuchFieldError, "java/lang/NoSuchFieldError"), \
+     action(java_lang_NoSuchMethodError, "java/lang/NoSuchMethodError"), \
+     action(java_lang_ClassCastException, "java/lang/ClassCastException"), \
++    action(java_lang_SecurityException, "java/lang/SecurityException"), \
+     action(java_lang_StackOverflowError, "java/lang/StackOverflowError"), \
+     action(java_lang_InstantiationError, "java/lang/InstantiationError"), \
+     action(java_lang_IllegalAccessError, "java/lang/IllegalAccessError"), \
+-- 
+2.56.0
+
