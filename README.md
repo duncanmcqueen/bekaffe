@@ -5,8 +5,10 @@ Project page: <https://duncanmcqueen.github.io/bekaffe/>
 This repository has an AWT toolkit peer for the Kaffe Java VM on Haiku. With the peer,
 AWT and Swing programs and JDK 1.0/1.1 applets run in native Haiku windows.
 
-- VM: Kaffe 1.1.10-pre ([github.com/kaffe/kaffe](https://github.com/kaffe/kaffe), which is
-  archived), interpreter engine, on Haiku R1/beta6 x86_64.
+- VM: Kaffe 1.1.10-pre, interpreter engine, on Haiku R1/beta6 x86_64. Upstream
+  ([kaffe/kaffe](https://github.com/kaffe/kaffe)) is archived. BeKaffe uses the fork
+  [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe) (`haiku` branch), which has
+  the Haiku port and fixes for memory-safety vulnerabilities.
 - Class library: GNU Classpath 0.98.
 - The peer is `gnu.java.awt.peer.haiku`. Select it with
   `-Dawt.toolkit=gnu.java.awt.peer.haiku.HaikuToolkit`.
@@ -166,6 +168,9 @@ The Kaffe patches are working-tree snapshots, not clean upstream patches.
   The patch also has local workarounds: the version string is set to "Interpreter", and the
   shared library suffix is set to `.so`.
 - `0002-regenerated-configure.patch`: the `configure` script after the Haiku changes.
+- `0003-memory-safety-fixes.patch`: fixes for buffer overflows and reads past the end of a
+  buffer in the class file reader, the verifier, UTF-8 string conversion, multi-dimensional
+  arrays and the JNI symbol lookup (see `docs/development-notes.md`).
 - `patches/classpath-ingelabs/` (two commits: the peer and fixes, then native drawing)
   is a clean patch series for GNU Classpath. `patches/classpath-0.98/` is the older state
   of the same work (without native drawing) for the 0.98 release.
