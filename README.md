@@ -92,7 +92,7 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/resource/gnu/java/awt/font/fonts.properties` | Maps the Java logical fonts to the DejaVu fonts on Haiku. |
 | `src/applet/bekaffe/applet/` | Kaffe 1.0's AppletViewer, changed to work with Classpath (see below). |
 | `src/demos/` | Demo applets for the screenshots. |
-| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. `CliTest` checks a Kaffe + Classpath build without a GUI. `DrawBench` times drawing operations; `ClipTest` draws through a clip that is not a rectangle. |
+| `src/test/` | Test programs. `AwtWidgets` shows all AWT widgets. `AwtExtras` tests the clipboard, cursors, frame state, FileDialog filters and sound. `AwtMore` tests modal and always-on-top windows, drag and drop, printing, input methods and pictures on the clipboard. `FontTest` shows fonts, styles, CJK, rotated and gradient text, with the measured widths. `CliTest` checks a Kaffe + Classpath build without a GUI. `FixTests` checks the Kaffe memory-safety fixes (compile it with `-source 1.5 -target 1.5 -encoding UTF-8`). `DrawBench` times drawing operations; `ClipTest` draws through a clip that is not a rectangle. |
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
@@ -119,8 +119,9 @@ You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
    the machine that ran autoreconf. The Haiku peer is built by default on Haiku and is the
    default AWT toolkit; `libhaikupeer.so` is in the native library directory with the other
    Classpath JNI libraries.
-2. Kaffe: clone `https://github.com/kaffe/kaffe`, apply `patches/kaffe/0001-haiku-x86_64-port.patch`
-   and `0002-regenerated-configure.patch` with `git apply`, and configure with the
+2. Kaffe: clone `https://github.com/kaffe/kaffe`, apply `patches/kaffe/0001-haiku-x86_64-port.patch`,
+   `0002-regenerated-configure.patch` and `0003-memory-safety-fixes.patch` with `git apply`,
+   and configure with the
    interpreter engine and `--with-classpath-classes=<Classpath>/share/classpath/glibj.zip`.
    Kaffe makes C headers from the Classpath classes (kaffeh) and compiles its
    `kaffe-vminterface.jar` against them, so build Kaffe after Classpath.

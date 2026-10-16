@@ -3,6 +3,43 @@
 
 # Handoff: write a minimal Haiku AWT toolkit peer for Kaffe 1.1.10 on Haiku
 
+## UPDATE (2026-10-16): Kaffe memory-safety fixes
+
+[OpenAnt](https://github.com/knostic/OpenAnt) (an LLM security scanner, run with a local
+Qwen model) scanned the Kaffe C code that the Haiku build uses (interpreter engine,
+unix-pthreads, kaffe-gc). It reported 27 confirmed findings. They were checked by hand,
+and the real bugs are fixed in `patches/kaffe/0003-memory-safety-fixes.patch`. Most of them
+can be reached with a malformed class file:
+
+- `stringJava2C()` allocated one byte per character but writes UTF-8, so non-ASCII
+  strings (for example file names) overflowed the heap. `stringJava2CBuf()` counted
+  characters, not bytes, so the fixed buffers in `thread.c` and `Runtime.c` could overflow.
+- `readConstantPool()`: a long or double in the last pool entry wrote past the pool.
+- The Code, LineNumberTable, LocalVariableTable and Exceptions readers did not check their
+  counts against the attribute length (`readm()`/`readu2()` do no bounds checks).
+  `readAttributes()` did not check the name index or the length of ConstantValue,
+  SourceFile and Signature. The interfaces and InnerClasses sizes were cut to 16 bits
+  before the size check.
+- A ConstantValue of the wrong type (for example a long on an int field) wrote past the
+  field.
+- The verifier: `DUP2_X1` checked for 2 stack items instead of 3, and
+  `parseObjectTypeDescriptor()` compared the pointer, not the character, with `'\0'`.
+- `newMultiArrayChecked()`: the array count could overflow.
+- `Kaffe_JNI_native()`: the JNI symbol name could overflow its 1024-byte buffer.
+
+Findings that were not fixed: JNI calls with NULL or negative arguments (the JNI spec makes
+these the caller's fault), and findings that Java code already prevents
+(`Method.invoke0`, `arraycopy0`).
+
+Tests on Haiku: `src/test/FixTests.java` passes (7 checks). Kaffe's own regression suite
+gives the same results with and without the patch (137–138 of 149 pass). The failures
+are old: UDP receive is not supported, `Thread.sleep` timing, helper classes, and
+`SecureRandomTest`, which hangs at exit in about 1 run in 3 with or without the patch.
+To run the suite, `test/regression/TestScript` needs a `compile()` function (upstream
+calls it but never defines it), `-source 1.5 -target 1.5` for `javac`, and the
+environment of `BUILD_ENVIRONMENT` with `:` and `/` in place of `path_separator` and
+`file_separator`. (configure does not fill in those two names on Haiku.)
+
 ## UPDATE (2026-10-14, night): native drawing for shapes and images
 
 - `HaikuRaster` (Java) + `native/haiku-peer/gnu_java_awt_peer_haiku_HaikuRaster.cpp`

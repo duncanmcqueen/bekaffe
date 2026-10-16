@@ -1,0 +1,595 @@
+From 455b803f1c17c9757fd8356c512fc55a9c3e92ce Mon Sep 17 00:00:00 2001
+From: duncanmcqueen <dwmcqueen@gmail.com>
+Date: Fri, 16 Oct 2026 07:23:24 -0500
+Subject: [PATCH] Fix memory-safety bugs in class loading, strings and JNI
+ lookup
+
+These were found with OpenAnt (an LLM security scanner) and checked by
+hand. Most can be reached with a malformed class file. A malformed class
+must give ClassFormatError, not a crash.
+
+- string.c: stringJava2C() allocated one byte per character, but
+  stringJava2CBuf() writes UTF-8 (up to 3 bytes per character), so
+  non-ASCII strings overflowed the buffer. stringJava2CBuf() also counted
+  characters, not bytes, so the fixed buffers in thread.c and Runtime.c
+  could overflow. Allocate 3 bytes per character and count bytes.
+- constants.c: a long or double constant in the last pool entry wrote
+  one entry past the pool.
+- code.c: the Code, LineNumberTable, LocalVariableTable and Exceptions
+  readers did not check their counts against the attribute length, and
+  readm()/readu2() do no bounds checks. Check the sizes, and check the
+  LocalVariableTable constant indexes.
+- readClass.c: check the attribute name index, and the length of the
+  ConstantValue, SourceFile and Signature attributes. Check the
+  ConstantValue index. Do not truncate the interfaces size to 16 bits.
+- classMethod.c: do not truncate the InnerClasses size to 16 bits; check
+  the SourceFile index; check that a ConstantValue has the type of its
+  field (a long stored in an int field wrote past it); stop
+  sizeofSigItem() at the end of a malformed signature.
+- verify-block.c: DUP2_X1 needs 3 stack items, not 2.
+- verify.c: parseObjectTypeDescriptor() compared the pointer, not the
+  character, with '\0'.
+- object.c: the array count in newMultiArrayChecked() could overflow and
+  make the work stack too small. Throw OutOfMemoryError instead.
+- external.c: the JNI symbol name could overflow its 1024-byte buffer.
+  A name that does not fit now gives no native method
+  (UnsatisfiedLinkError).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ kaffe/kaffevm/classMethod.c           | 51 ++++++++++++++++++++++++--
+ kaffe/kaffevm/code.c                  | 52 +++++++++++++++++++++++----
+ kaffe/kaffevm/constants.c             | 16 +++++++++
+ kaffe/kaffevm/external.c              | 26 +++++++++++---
+ kaffe/kaffevm/object.c                | 16 +++++++--
+ kaffe/kaffevm/readClass.c             | 23 ++++++++++--
+ kaffe/kaffevm/string.c                | 32 +++++++++++------
+ kaffe/kaffevm/verifier/verify-block.c |  2 +-
+ kaffe/kaffevm/verifier/verify.c       |  4 +--
+ 9 files changed, 190 insertions(+), 32 deletions(-)
+
+diff --git a/kaffe/kaffevm/classMethod.c b/kaffe/kaffevm/classMethod.c
+index d84872c02..14b08da46 100644
+--- a/kaffe/kaffevm/classMethod.c
++++ b/kaffe/kaffevm/classMethod.c
+@@ -1043,7 +1043,8 @@ addSourceFile(Hjava_lang_Class* c, int idx, errorInfo *einfo)
+ 
+ 	pool = CLASS_CONSTANTS (c);
+ 
+-	if (pool->tags[idx] != CONSTANT_Utf8) {
++	if (idx <= 0 || (unsigned int)idx >= pool->size ||
++	    pool->tags[idx] != CONSTANT_Utf8) {
+ 		postExceptionMessage(einfo, JAVA_LANG(ClassFormatError),
+ 				     "invalid sourcefile index: %d",
+ 				     idx);
+@@ -1090,7 +1091,7 @@ addInnerClasses(Hjava_lang_Class* c, size_t len UNUSED, classFile* fp,
+ 		return true;
+ 	}
+ 
+-	if (! checkBufSize(fp, (u2)(nr*(2*4)), CLASS_CNAME(c), einfo))
++	if (! checkBufSize(fp, (u4)nr * (2*4), CLASS_CNAME(c), einfo))
+ 	    return false;
+ 
+ 	ic = gc_malloc(sizeof(innerClass) * nr, KGC_ALLOC_CLASSMISC);
+@@ -1919,6 +1920,34 @@ allocStaticFields(Hjava_lang_Class* class, errorInfo *einfo)
+ 	return (true);
+ }
+ 
++/*
++ * Check that a ConstantValue attribute has the type of its field.  The
++ * value is stored in the field, so a wrong type can write past it.
++ */
++static bool
++constantFitsField(Field* fld, int tag)
++{
++	Hjava_lang_Class* type = FIELD_ISPRIM(fld) ? FIELD_TYPE(fld) : NULL;
++
++	switch (tag) {
++	case CONSTANT_Integer:
++		return type == intClass || type == shortClass ||
++		       type == charClass || type == byteClass ||
++		       type == booleanClass;
++	case CONSTANT_Float:
++		return type == floatClass;
++	case CONSTANT_Long:
++		return type == longClass;
++	case CONSTANT_Double:
++		return type == doubleClass;
++	case CONSTANT_String:
++	case CONSTANT_ResolvedString:
++		return FIELD_ISREF(fld);
++	default:
++		return false;
++	}
++}
++
+ static
+ bool
+ resolveStaticFields(Hjava_lang_Class* class, errorInfo *einfo)
+@@ -1940,6 +1969,14 @@ resolveStaticFields(Hjava_lang_Class* class, errorInfo *einfo)
+ 			mem = FIELD_ADDRESS(fld);
+ 			idx = FIELD_SIZE(fld);
+ 
++			if (!constantFitsField(fld, CONST_TAG(idx, pool))) {
++				postExceptionMessage(einfo,
++					JAVA_LANG(ClassFormatError),
++					"%s (constant value of field %s has the wrong type)",
++					CLASS_CNAME(class), FIELD_NAME(fld));
++				return false;
++			}
++
+ 			switch (CONST_TAG(idx, pool)) {
+ 			case CONSTANT_Integer:
+ 				if (FIELD_TYPE(fld) == booleanClass ||
+@@ -2712,6 +2749,9 @@ sizeofSigItem(const char** strp, bool want_wide_refs)
+ 			case '(':
+ 				continue;
+ 			case 0:
++				/* Do not move past the end of the string. */
++				*strp = str;
++				return (count);
+ 			case ')':
+ 				break;
+ 			default:
+@@ -2722,10 +2762,15 @@ sizeofSigItem(const char** strp, bool want_wide_refs)
+ 			while (*str == '[')
+ 				++str;
+ 			if (*str == 'L') {
+-				while (*str != ';') {
++				while (*str != ';' && *str != 0) {
+ 					str++;
+ 				}
+ 			}
++			if (*str == 0) {
++				/* Malformed signature: stop at its end. */
++				*strp = str;
++				return (count);
++			}
+ 		}
+ 
+ 		*strp = str + 1;
+diff --git a/kaffe/kaffevm/code.c b/kaffe/kaffevm/code.c
+index c5f01cfc6..860fd6f61 100644
+--- a/kaffe/kaffevm/code.c
++++ b/kaffe/kaffevm/code.c
+@@ -27,8 +27,26 @@
+ #include "readClass.h"
+ #include "exception.h"
+ 
++/*
++ * The caller (readAttributes) checks that len bytes are left in the class
++ * file.  The readers below must not read more than len bytes.
++ */
++static bool
++attributeFits(Method* m, size_t need, size_t len, errorInfo *einfo)
++{
++	if (need > len) {
++		postExceptionMessage(einfo,
++				     JAVA_LANG(ClassFormatError),
++				     "%s (Method \"%s\" has a truncated attribute)",
++				     CLASS_CNAME(m->class),
++				     m->name->data);
++		return false;
++	}
++	return true;
++}
++
+ bool
+-addCode(Method* m, size_t len UNUSED, classFile* fp, errorInfo *einfo)
++addCode(Method* m, size_t len, classFile* fp, errorInfo *einfo)
+ {
+ 	bool retval = false;
+ 	Code c;
+@@ -38,6 +56,8 @@ addCode(Method* m, size_t len UNUSED, classFile* fp, errorInfo *einfo)
+ 
+ 	/* no checkBufSize calls necessary, done in caller (readAttributes) */
+ 
++	if (!attributeFits(m, 2+2+4, len, einfo))
++		return false;
+ 	readu2(&c.max_stack, fp);
+ 	readu2(&c.max_locals, fp);
+ 	readu4(&c.code_length, fp);
+@@ -49,6 +69,8 @@ addCode(Method* m, size_t len UNUSED, classFile* fp, errorInfo *einfo)
+ 		);
+ 	
+ 	if ((c.code_length > 0) && (c.code_length < 65536)) {
++		if (!attributeFits(m, 2+2+4 + (size_t)c.code_length + 2, len, einfo))
++			return false;
+ 		c.code = gc_malloc(c.code_length, KGC_ALLOC_BYTECODE);
+ 		if (c.code == 0) {
+ 			postOutOfMemory(einfo);
+@@ -63,6 +85,10 @@ addCode(Method* m, size_t len UNUSED, classFile* fp, errorInfo *einfo)
+ 		DBG(CODEATTR,
+ 		    dprintf("Exception table length = %d\n", elen);
+ 		    );
++		if (!attributeFits(m, 2+2+4 + (size_t)c.code_length + 2 + (size_t)elen * 8, len, einfo)) {
++			gc_free(c.code);
++			return false;
++		}
+ 		
+ 		if (elen > 0) {
+ 			c.exception_table = gc_malloc(sizeof(jexception) + ((elen - 1) * sizeof(jexceptionEntry)), KGC_ALLOC_EXCEPTIONTABLE);
+@@ -130,7 +156,7 @@ addCode(Method* m, size_t len UNUSED, classFile* fp, errorInfo *einfo)
+  * Read in line numbers assocated with code.
+  */
+ bool
+-addLineNumbers(Method* m, size_t len UNUSED, classFile* fp, errorInfo *info)
++addLineNumbers(Method* m, size_t len, classFile* fp, errorInfo *info)
+ {
+ 	lineNumbers* lines;
+ 	int i;
+@@ -139,7 +165,11 @@ addLineNumbers(Method* m, size_t len UNUSED, classFile* fp, errorInfo *info)
+ 
+ 	/* no checkBufSize, done in caller (readAttributes) */
+ 
++	if (!attributeFits(m, 2, len, info))
++		return false;
+ 	readu2(&nr, fp);
++	if (!attributeFits(m, 2 + (size_t)nr * 4, len, info))
++		return false;
+ 
+ 	lines = gc_malloc(sizeof(lineNumbers)+sizeof(lineNumberEntry) * nr, KGC_ALLOC_LINENRTABLE);
+ 	if (!lines) {
+@@ -185,7 +215,7 @@ addLineNumbers(Method* m, size_t len UNUSED, classFile* fp, errorInfo *info)
+ }
+ 
+ bool
+-addLocalVariables(Method *m, size_t len UNUSED, classFile *fp, errorInfo *info)
++addLocalVariables(Method *m, size_t len, classFile *fp, errorInfo *info)
+ {
+ 	constants *pool = CLASS_CONSTANTS(m->class);
+ 	localVariables *lv;
+@@ -193,7 +223,11 @@ addLocalVariables(Method *m, size_t len UNUSED, classFile *fp, errorInfo *info)
+ 	u2 nr;
+ 	u2 data;
+ 
++	if (!attributeFits(m, 2, len, info))
++		return false;
+ 	readu2(&nr, fp);
++	if (!attributeFits(m, 2 + (size_t)nr * 10, len, info))
++		return false;
+ 
+ 	lv = gc_malloc(sizeof(localVariables) +
+ 		       (sizeof(localVariableEntry) * nr),
+@@ -218,7 +252,8 @@ addLocalVariables(Method *m, size_t len UNUSED, classFile *fp, errorInfo *info)
+ 		readu2(&data, fp);
+ 		lv->entry[i].index = data;
+ 
+-		if (pool->tags[lv->entry[i].name_index] != CONSTANT_Utf8) {
++		if (lv->entry[i].name_index >= pool->size ||
++		    pool->tags[lv->entry[i].name_index] != CONSTANT_Utf8) {
+ 			postExceptionMessage(info,
+ 					     JAVA_LANG(ClassFormatError),
+ 					     "invalid local variable "
+@@ -226,7 +261,8 @@ addLocalVariables(Method *m, size_t len UNUSED, classFile *fp, errorInfo *info)
+ 					     lv->entry[i].name_index);
+ 			return false;
+ 		}
+-		if (pool->tags[lv->entry[i].descriptor_index] !=
++		if (lv->entry[i].descriptor_index >= pool->size ||
++		    pool->tags[lv->entry[i].descriptor_index] !=
+ 		    CONSTANT_Utf8) {
+ 			postExceptionMessage(info,
+ 					     JAVA_LANG(ClassFormatError),
+@@ -254,7 +290,7 @@ addLocalVariables(Method *m, size_t len UNUSED, classFile *fp, errorInfo *info)
+  * Read in (checked) exceptions declared for a method
+  */
+ bool
+-addCheckedExceptions(Method* m, size_t len UNUSED, classFile* fp,
++addCheckedExceptions(Method* m, size_t len, classFile* fp,
+ 		     errorInfo *info)
+ {
+ 	int i;
+@@ -263,7 +299,11 @@ addCheckedExceptions(Method* m, size_t len UNUSED, classFile* fp,
+ 
+ 	/* no checkBufSize, done in caller (readAttributes) */
+ 
++	if (!attributeFits(m, 2, len, info))
++		return false;
+ 	readu2(&nr, fp);
++	if (!attributeFits(m, 2 + (size_t)nr * 2, len, info))
++		return false;
+ 	if (nr == 0) {
+ 		return true;
+ 	}
+diff --git a/kaffe/kaffevm/constants.c b/kaffe/kaffevm/constants.c
+index cf6e9f117..f9dc45937 100644
+--- a/kaffe/kaffevm/constants.c
++++ b/kaffe/kaffevm/constants.c
+@@ -162,6 +162,14 @@ readConstantPool(Hjava_lang_Class* this, classFile* fp, errorInfo *einfo)
+ 		case CONSTANT_Long:
+ 			if (! checkBufSize(fp, 8, className, einfo))
+ 				goto fail;
++			/* A long or a double takes two entries. */
++			if (i + 1 >= info->size) {
++				postExceptionMessage(einfo,
++					JAVA_LANG(ClassFormatError),
++					"%s (8-byte constant at the end of the constant pool)",
++					className);
++				goto fail;
++			}
+ 			readu4(&d4, fp);
+ 			readu4(&d4b, fp);
+ #if SIZEOF_VOID_P == 8
+@@ -179,6 +187,14 @@ readConstantPool(Hjava_lang_Class* this, classFile* fp, errorInfo *einfo)
+ 		case CONSTANT_Double:
+ 			if (! checkBufSize(fp, 8, className, einfo))
+ 				goto fail;
++			/* A long or a double takes two entries. */
++			if (i + 1 >= info->size) {
++				postExceptionMessage(einfo,
++					JAVA_LANG(ClassFormatError),
++					"%s (8-byte constant at the end of the constant pool)",
++					className);
++				goto fail;
++			}
+ 			readu4(&d4, fp);
+ 			readu4(&d4b, fp);
+ 
+diff --git a/kaffe/kaffevm/external.c b/kaffe/kaffevm/external.c
+index 3c326a8a0..8c696c62b 100644
+--- a/kaffe/kaffevm/external.c
++++ b/kaffe/kaffevm/external.c
+@@ -344,13 +344,22 @@ loadNativeLibrarySym(const char* name)
+ }
+ 
+ 
+-static void
+-strcatJNI(char* to, const char* from)
++/*
++ * Append the JNI form of from to the string in to, which is a buffer of
++ * size bytes.  Return false if the result does not fit.
++ */
++static bool
++strcatJNI(char* to, size_t size, const char* from)
+ {
+ 	char* ptr;
+ 
+ 	ptr = &to[strlen(to)];
+ 	for (; *from != 0; from++) {
++		/* Each character gives at most 2; keep room for the NUL. */
++		if ((size_t)(ptr - to) + 2 >= size) {
++			*ptr = 0;
++			return false;
++		}
+ 		switch (*from) {
+ 		case '(':
+ 			/* Ignore */
+@@ -381,6 +390,7 @@ strcatJNI(char* to, const char* from)
+ 
+ 	end:;
+ 	*ptr = 0;
++	return true;
+ }
+ 
+ 
+@@ -403,15 +413,21 @@ Kaffe_JNI_native(Method* meth)
+ #else
+ 	strcpy(name, "Java_");
+ #endif
+-	strcatJNI(name, meth->class->name->data);
++	/* strcatJNI() keeps room for the "_" and "__" separators. */
++	if (!strcatJNI(name, sizeof(name), meth->class->name->data))
++		return NULL;
+ 	strcat(name, "_");
+-	strcatJNI(name, meth->name->data);
++	if (!strcatJNI(name, sizeof(name), meth->name->data))
++		return NULL;
+ 
+ 	func = loadNativeLibrarySym(name);
+ 	if (func == NULL) {
+ 		/* Try the long signatures */
++		if (strlen(name) + 2 >= sizeof(name))
++			return NULL;
+ 		strcat(name, "__");
+-		strcatJNI(name, METHOD_SIGD(meth));
++		if (!strcatJNI(name, sizeof(name), METHOD_SIGD(meth)))
++			return NULL;
+ 		func = loadNativeLibrarySym(name);
+ 	}
+ 
+diff --git a/kaffe/kaffevm/object.c b/kaffe/kaffevm/object.c
+index e1a393745..db98f25fe 100644
+--- a/kaffe/kaffevm/object.c
++++ b/kaffe/kaffevm/object.c
+@@ -17,6 +17,7 @@
+ #include "config.h"
+ 
+ #include <assert.h>
++#include <limits.h>
+ 
+ #include "debug.h"
+ #include "config-std.h"
+@@ -228,9 +229,20 @@ newMultiArrayChecked(Hjava_lang_Class* clazz, int* dims, errorInfo *einfo)
+   Hjava_lang_Object** array;
+   int i, j, k, ndims, fullsize;
+   int stacksize, stackptr;
++  jlong total;
+ 
+-  for (i=0,fullsize=1;dims[i+1] >= 0; i++)
+-    fullsize += fullsize*dims[i];
++  /* Count the arrays to make.  Stop before the count can overflow:
++   * so many arrays cannot be allocated anyway. */
++  for (i=0,total=1;dims[i+1] >= 0; i++)
++    {
++      total += total*dims[i];
++      if (total > (jlong)(INT_MAX / sizeof(Hjava_lang_Object *)))
++	{
++	  postOutOfMemory(einfo);
++	  return NULL;
++	}
++    }
++  fullsize = (int)total;
+   ndims = i+1;
+ 
+   stack = (Hjava_lang_Object **)
+diff --git a/kaffe/kaffevm/readClass.c b/kaffe/kaffevm/readClass.c
+index ae76ce5b0..0260a283c 100644
+--- a/kaffe/kaffevm/readClass.c
++++ b/kaffe/kaffevm/readClass.c
+@@ -125,7 +125,7 @@ readInterfaces(classFile* fp, Hjava_lang_Class* this, errorInfo *einfo)
+ 		return true;
+ 	}			
+ 
+-	if (! checkBufSize(fp, (u2)(interfaces_count * 2), CLASS_CNAME(this), einfo))
++	if (! checkBufSize(fp, (u4)interfaces_count * 2, CLASS_CNAME(this), einfo))
+ 		return false;
+ 
+ 	interfaces = (Hjava_lang_Class**)
+@@ -283,7 +283,8 @@ readAttributes(classFile* fp, Hjava_lang_Class* this,
+ 		if (! checkBufSize(fp, len, CLASS_CNAME(this), einfo))
+ 			return false;
+ 
+-		if (CLASS_CONST_TAG(this, idx) == CONSTANT_Utf8) {
++		if (idx < CLASS_CONST_SIZE(this) &&
++		    CLASS_CONST_TAG(this, idx) == CONSTANT_Utf8) {
+ 			Utf8Const* name;
+ 			name = WORD2UTF(CLASS_CONST_DATA (this, idx));
+ 			DBG(READCLASS,
+@@ -329,7 +330,16 @@ readAttributes(classFile* fp, Hjava_lang_Class* this,
+ 			}
+ 			else if (utf8ConstEqual(name, ConstantValue_name)
+ 				 && (thingType == READATTR_FIELD)) {
++				if (len < 2)
++					goto truncated;
+ 				readu2(&idx, fp);
++				if (idx == 0 || idx >= CLASS_CONST_SIZE(this)) {
++					postExceptionMessage(einfo,
++						JAVA_LANG(ClassFormatError),
++						"%s (Invalid constant value index: %d)",
++						CLASS_CNAME(this), idx);
++					return false;
++				}
+ 				setFieldValue(this, (Field*)thing, idx);
+ 			}
+ 			else if (utf8ConstEqual(name, Exceptions_name)
+@@ -341,6 +351,8 @@ readAttributes(classFile* fp, Hjava_lang_Class* this,
+ 			}
+ 			else if (utf8ConstEqual(name, SourceFile_name)
+ 				&& (thingType == READATTR_CLASS)) {
++				if (len < 2)
++					goto truncated;
+ 				readu2(&idx, fp);
+ 				if (! addSourceFile((Hjava_lang_Class*)thing, idx, einfo)) {
+ 					return false;
+@@ -374,6 +386,8 @@ readAttributes(classFile* fp, Hjava_lang_Class* this,
+ 			}
+ 			else if (utf8ConstEqual(name, Signature_name)) {
+ 			  Utf8Const *signature;
++			  if (len < 2)
++			    goto truncated;
+ 			  readu2(&idx, fp);
+ 			  if (!readSignatureAttribute(this, idx, &signature, einfo))
+ 			    return false;
+@@ -415,6 +429,11 @@ readAttributes(classFile* fp, Hjava_lang_Class* this,
+ 		}
+ 	}
+ 	return true;
++
++truncated:
++	postExceptionMessage(einfo, JAVA_LANG(ClassFormatError),
++			     "%s (truncated attribute)", CLASS_CNAME(this));
++	return false;
+ }
+ 
+ /*
+diff --git a/kaffe/kaffevm/string.c b/kaffe/kaffevm/string.c
+index a042a28bd..aaea5de7a 100644
+--- a/kaffe/kaffevm/string.c
++++ b/kaffe/kaffevm/string.c
+@@ -36,7 +36,8 @@ char*
+ stringJava2C(const Hjava_lang_String* js)
+ {
+ 	char* str;
+-	const size_t size = (size_t)(STRING_SIZE(js) + 1);
++	/* Each Java character takes at most 3 bytes in UTF-8. */
++	const size_t size = (size_t)STRING_SIZE(js) * 3 + 1;
+ 
+ 	str = gc_malloc(size, KGC_ALLOC_FIXED);
+ 	if (str != 0) {
+@@ -46,13 +47,15 @@ stringJava2C(const Hjava_lang_String* js)
+ }
+ 
+ /*
+- * Convert an Java string to a C string in the buffer.
+- * We simply truncate the Java characters to 8 bits.
++ * Convert a Java string to a UTF-8 C string in the buffer.  The buffer
++ * has len bytes.  If the string does not fit, it is cut at a character
++ * boundary.
+  */
+ char*
+ stringJava2CBuf(const Hjava_lang_String* js, char* cs, int len)
+ {
+ 	jchar* chrs;
++	int n;
+ 
+ 	if (len <= 0) {
+ 		return(NULL);
+@@ -62,23 +65,30 @@ stringJava2CBuf(const Hjava_lang_String* js, char* cs, int len)
+ 		return(cs);
+ 	}
+ 	chrs = STRING_DATA(js);
+-	len--;
+-	if (len > STRING_SIZE(js)) {
+-		len = STRING_SIZE(js);
+-	}
++	n = STRING_SIZE(js);
++	len--;			/* room for the NUL */
+ 
+-	while (--len >= 0) {
++	for (; n > 0; n--, chrs++) {
+ 	  if (*chrs >= 0x0001 && *chrs <= 0x007F) {
+-	    *cs++ = *chrs++ & 0x7F;
++	    if (len < 1)
++	      break;
++	    *cs++ = *chrs & 0x7F;
++	    len -= 1;
+ 	  }
+ 	  else if (*chrs >= 0x0080 && *chrs <= 0x07FF) {
++	    if (len < 2)
++	      break;
+ 	    *cs++ = 0xC0 | ((*chrs >> 6) & 0x1F);
+-	    *cs++ = 0x80 | (*chrs++ & 0x3F);
++	    *cs++ = 0x80 | (*chrs & 0x3F);
++	    len -= 2;
+ 	  }
+ 	  else {
++	    if (len < 3)
++	      break;
+ 	    *cs++ = 0xE0 | ((*chrs >> 12) & 0x0F);
+ 	    *cs++ = 0x80 | ((*chrs >> 6) & 0x3F);
+-	    *cs++ = 0x80 | (*chrs++ & 0x3F);
++	    *cs++ = 0x80 | (*chrs & 0x3F);
++	    len -= 3;
+ 	  }
+ 	}
+ 	
+diff --git a/kaffe/kaffevm/verifier/verify-block.c b/kaffe/kaffevm/verifier/verify-block.c
+index 5b684cd0b..fd6a78835 100644
+--- a/kaffe/kaffevm/verifier/verify-block.c
++++ b/kaffe/kaffevm/verifier/verify-block.c
+@@ -1524,7 +1524,7 @@ verifyBasicBlock(Verifier* v, BlockInfo* block)
+ 			break;
+ 			
+ 		case DUP2_X1:
+-			ENSURE_OPSTACK_SIZE(2);
++			ENSURE_OPSTACK_SIZE(3);
+ 			if (isWide(getOpstackItem(block, 2))) {
+ 				return verifyError(v, "dup_x1 requires top 2 bytes on operand stack to be single bytes items");
+ 			}
+diff --git a/kaffe/kaffevm/verifier/verify.c b/kaffe/kaffevm/verifier/verify.c
+index ba38c757f..e945f2963 100644
+--- a/kaffe/kaffevm/verifier/verify.c
++++ b/kaffe/kaffevm/verifier/verify.c
+@@ -98,9 +98,9 @@ parseBaseTypeDescriptor(const char* sig)
+ const char*
+ parseObjectTypeDescriptor(const char* sig)
+ {
+-	for (sig++; sig != '\0' && *sig != ';'; sig++);
++	for (sig++; *sig != '\0' && *sig != ';'; sig++);
+ 	
+-	if (sig == '\0') return NULL;
++	if (*sig == '\0') return NULL;
+ 	else             return sig + 1;
+ }
+ 
