@@ -96,7 +96,7 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/build.sh`, `src/run.sh` | Build and run scripts for the Haiku side (development overlay). |
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
-| `patches/kaffe/` | The Kaffe port to Haiku x86_64 (see below). |
+| `patches/kaffe/` | The Kaffe port to Haiku x86_64 and the memory-safety fixes, as patches. The same changes are on the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe). |
 | `patches/classpath-ingelabs/` | Adds the peer to [ingelabs/classpath](https://github.com/ingelabs/classpath), with fixes that Kaffe on Haiku needs. |
 | `patches/classpath-0.98/` | The same for the GNU Classpath 0.98 release. |
 | `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. `msgtest.cpp` sends clicks and input method events straight to a Java window, and puts pictures on the clipboard. |
@@ -119,9 +119,10 @@ You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
    the machine that ran autoreconf. The Haiku peer is built by default on Haiku and is the
    default AWT toolkit; `libhaikupeer.so` is in the native library directory with the other
    Classpath JNI libraries.
-2. Kaffe: clone `https://github.com/kaffe/kaffe`, apply `patches/kaffe/0001-haiku-x86_64-port.patch`,
-   `0002-regenerated-configure.patch` and `0003-memory-safety-fixes.patch` with `git apply`,
-   and configure with the
+2. Kaffe: clone the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe),
+   a fork of the archived [kaffe/kaffe](https://github.com/kaffe/kaffe) with the Haiku port
+   and memory-safety fixes. (The same changes are in `patches/kaffe/`: apply 0001, 0002 and
+   0003 to `kaffe/kaffe` with `git apply`.) Configure with the
    interpreter engine and `--with-classpath-classes=<Classpath>/share/classpath/glibj.zip`.
    Kaffe makes C headers from the Classpath classes (kaffeh) and compiles its
    `kaffe-vminterface.jar` against them, so build Kaffe after Classpath.
