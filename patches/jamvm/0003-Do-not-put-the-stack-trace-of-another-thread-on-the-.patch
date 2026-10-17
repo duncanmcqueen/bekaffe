@@ -1,0 +1,97 @@
+From 57229d9005a175f498d4ac74ea261934f6b88dd0 Mon Sep 17 00:00:00 2001
+From: Duncan McQueen <dwmcqueen@gmail.com>
+Date: Sat, 17 Oct 2026 14:40:16 -0500
+Subject: [PATCH] Do not put the stack trace of another thread on the native
+ stack
+
+runningThreadStackTrace() used alloca() for the trace buffer, with a
+size from the depth of the other thread.  The Java stack of that thread
+can be much bigger than the native stack of the calling thread.  For
+example, getThreadInfo(id, Integer.MAX_VALUE) from a normal thread on a
+thread with 100000 frames needs 1.6 MB, and the VM crashes with a
+segmentation fault.
+
+Put the buffer on the heap.  The buffer cannot be allocated while the
+other thread is suspended, because the thread may be suspended inside
+malloc.  Thus, if the buffer is too small, resume the thread, make the
+buffer bigger and try again.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/thread.c | 38 +++++++++++++++++++++++++++++---------
+ 1 file changed, 29 insertions(+), 9 deletions(-)
+
+diff --git a/src/thread.c b/src/thread.c
+index 56ae35e..339f59d 100644
+--- a/src/thread.c
++++ b/src/thread.c
+@@ -835,10 +835,11 @@ void createVMThread(char *name, void (*start)(Thread*)) {
+ 
+ Object *runningThreadStackTrace(Thread *thread, int max_depth,
+                                                 int *in_native) {
+-    int depth = 0;
++    int depth = 0, size = 0;
+     void **trace = NULL;
+     Thread *self = threadSelf();
+     int is_self = thread == self;
++    Object *elements;
+ 
+     if(!is_self) {
+         disableSuspend(self);
+@@ -848,18 +849,34 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
+     if(threadIsAlive(thread)) {
+         Frame *last;
+ 
+-        if(!is_self)
+-            suspendThread(thread);
++        /* The stack can be much bigger than the native stack of this
++           thread, so the trace buffer is on the heap.  It cannot be
++           allocated while the thread is suspended, as the thread may
++           be suspended inside malloc.  If the buffer is too small,
++           resume the thread, make the buffer bigger and try again. */
++        for(;;) {
++            if(!is_self)
++                suspendThread(thread);
+ 
+-        last = thread->ee->last_frame;
++            last = thread->ee->last_frame;
+ 
+-        if(last->prev != NULL) {
+-            depth = countStackFrames(last, max_depth);
+-            trace = alloca(depth * 2 * sizeof(void*));
++            depth = last->prev == NULL ? 0
++                                       : countStackFrames(last, max_depth);
+ 
+-            stackTrace2Buffer(last, trace, depth);
++            if(depth <= size)
++                break;
++
++            if(!is_self)
++                resumeThread(thread);
++
++            sysFree(trace);
++            size = depth + depth / 4 + 16;
++            trace = sysMalloc(size * 2 * sizeof(void*));
+         }
+ 
++        if(depth > 0)
++            stackTrace2Buffer(last, trace, depth);
++
+         if(in_native != NULL)
+             *in_native = last->prev == NULL ||
+                               last->mb->access_flags & ACC_NATIVE;
+@@ -873,7 +890,10 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
+         enableSuspend(self);
+     }
+ 
+-    return convertTrace2Elements(trace, depth * 2);
++    elements = convertTrace2Elements(trace, depth * 2);
++    sysFree(trace);
++
++    return elements;
+ }
+ 
+ void suspendThread(Thread *thread) {
+-- 
+2.56.0
+

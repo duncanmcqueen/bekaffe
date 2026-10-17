@@ -103,7 +103,7 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/build-jamvm.sh`, `src/run-jamvm.sh` | Build JamVM on Haiku against that Classpath build, and run with JamVM. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
 | `patches/kaffe/` | The Kaffe port to Haiku x86_64 and the memory-safety fixes, as patches. The same changes are on the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe). |
-| `patches/jamvm/` | The JamVM port to Haiku x86_64, and a fix that stops user class loaders from defining `java.*` classes. Offered upstream as [ingelabs/jamvm#25](https://github.com/ingelabs/jamvm/pull/25) and [#24](https://github.com/ingelabs/jamvm/pull/24). |
+| `patches/jamvm/` | The JamVM port to Haiku x86_64, a fix that stops user class loaders from defining `java.*` classes, and a fix for a crash in stack traces of deep threads. Offered upstream as [ingelabs/jamvm#25](https://github.com/ingelabs/jamvm/pull/25), [#24](https://github.com/ingelabs/jamvm/pull/24) and [#26](https://github.com/ingelabs/jamvm/pull/26). |
 | `patches/classpath-ingelabs/` | Adds the peer to [ingelabs/classpath](https://github.com/ingelabs/classpath), with fixes that Kaffe on Haiku needs. |
 | `patches/classpath-0.98/` | The same for the GNU Classpath 0.98 release. |
 | `tools/` | Screenshot helpers. `mousemode.cpp` sets the Haiku focus mode. `tonetest.cpp` checks sound output without Java. `msgtest.cpp` sends clicks and input method events straight to a Java window, and puts pictures on the clipboard. |
@@ -202,10 +202,24 @@ Results on Haiku R1/beta6 x86_64 (2026-10-16):
   `patches/jamvm/0002` fixes this. JamVM now throws the same `SecurityException` as
   OpenJDK ("Prohibited package name").
 
-The patches are offered upstream: [#25](https://github.com/ingelabs/jamvm/pull/25) (Haiku
-support) and [#24](https://github.com/ingelabs/jamvm/pull/24) (the `java.*` check).
+Security review (2026-10-17): an [OpenAnt](https://github.com/knostic/OpenAnt) scan of the
+JamVM sources reported 10 problems, and each one was checked by hand on Haiku. JamVM does not
+verify bytecode, so it cannot safely run untrusted classes; the review looked for problems
+that normal Java code can cause.
 
-Not done yet: a JamVM security review like the one for Kaffe, and a check of
+- `getThreadInfo()` for a thread with a very deep stack crashed the VM, because the trace
+  buffer was on the native stack of the calling thread. `patches/jamvm/0003` fixes this.
+- The class file parser does not check lengths, so a damaged class file can crash the VM
+  instead of giving `ClassFormatError`. This is not fixed yet; see
+  [ingelabs/jamvm#27](https://github.com/ingelabs/jamvm/issues/27).
+- The other reports were not real problems: `System.arraycopy` already catches the overflow,
+  and `sun.misc.Unsafe`, `System.load()` and JNI calls with `NULL` objects work as designed.
+
+The patches are offered upstream: [#25](https://github.com/ingelabs/jamvm/pull/25) (Haiku
+support), [#24](https://github.com/ingelabs/jamvm/pull/24) (the `java.*` check) and
+[#26](https://github.com/ingelabs/jamvm/pull/26) (the stack trace fix).
+
+Not done yet: bounds checks in the class file parser, and a check of
 `ExceptionTestClassLoader2` and `ReflectInterfaces`.
 
 ## The Kaffe and Classpath patches
