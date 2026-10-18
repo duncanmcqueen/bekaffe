@@ -1,4 +1,4 @@
-From 57229d9005a175f498d4ac74ea261934f6b88dd0 Mon Sep 17 00:00:00 2001
+From 307a4d15d5b6debccc5b328fd7237d3477d99c39 Mon Sep 17 00:00:00 2001
 From: Duncan McQueen <dwmcqueen@gmail.com>
 Date: Sat, 17 Oct 2026 14:40:16 -0500
 Subject: [PATCH] Do not put the stack trace of another thread on the native
@@ -11,76 +11,65 @@ example, getThreadInfo(id, Integer.MAX_VALUE) from a normal thread on a
 thread with 100000 frames needs 1.6 MB, and the VM crashes with a
 segmentation fault.
 
-Put the buffer on the heap.  The buffer cannot be allocated while the
-other thread is suspended, because the thread may be suspended inside
-malloc.  Thus, if the buffer is too small, resume the thread, make the
-buffer bigger and try again.
+Limit the trace to 4096 frames (64 KB on 64-bit), and allocate the
+buffer with sysMalloc() before suspension is disabled and the thread
+lock is held.  A thread that cannot be suspended must not call malloc
+while it holds the thread lock: the GC may have stopped another thread
+inside malloc, and the GC needs the lock to restart the threads.  The
+specifications of Thread.getStackTrace() and ThreadInfo.getStackTrace()
+let a VM omit frames.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/thread.c | 38 +++++++++++++++++++++++++++++---------
- 1 file changed, 29 insertions(+), 9 deletions(-)
+ src/thread.c | 27 +++++++++++++++++++++++----
+ 1 file changed, 23 insertions(+), 4 deletions(-)
 
 diff --git a/src/thread.c b/src/thread.c
-index 56ae35e..339f59d 100644
+index 56ae35e..f52283b 100644
 --- a/src/thread.c
 +++ b/src/thread.c
-@@ -835,10 +835,11 @@ void createVMThread(char *name, void (*start)(Thread*)) {
+@@ -833,12 +833,30 @@ void createVMThread(char *name, void (*start)(Thread*)) {
+     pthread_mutex_unlock(&lock);
+ }
  
++/* The maximum number of frames in the stack trace of a running thread.
++   The trace buffer cannot be on the native stack, as the stack of the
++   other thread can be much deeper.  It must also be allocated before
++   suspension is disabled and the thread lock is held: while the GC has
++   the other threads stopped (one of them may be stopped inside malloc),
++   a thread that cannot be suspended must not call malloc/free while it
++   holds the thread lock, as the GC needs the lock to restart the
++   threads.  Thus the size is fixed.  The specifications of
++   Thread.getStackTrace() and ThreadInfo.getStackTrace() let a VM omit
++   frames. */
++#define MAX_STACK_TRACE_DEPTH 4096
++
  Object *runningThreadStackTrace(Thread *thread, int max_depth,
                                                  int *in_native) {
--    int depth = 0;
-+    int depth = 0, size = 0;
-     void **trace = NULL;
+     int depth = 0;
+-    void **trace = NULL;
++    void **trace;
      Thread *self = threadSelf();
      int is_self = thread == self;
 +    Object *elements;
++
++    if(max_depth < 0 || max_depth > MAX_STACK_TRACE_DEPTH)
++        max_depth = MAX_STACK_TRACE_DEPTH;
++
++    trace = sysMalloc(max_depth * 2 * sizeof(void*));
  
      if(!is_self) {
          disableSuspend(self);
-@@ -848,18 +849,34 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
-     if(threadIsAlive(thread)) {
-         Frame *last;
+@@ -855,8 +873,6 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
  
--        if(!is_self)
--            suspendThread(thread);
-+        /* The stack can be much bigger than the native stack of this
-+           thread, so the trace buffer is on the heap.  It cannot be
-+           allocated while the thread is suspended, as the thread may
-+           be suspended inside malloc.  If the buffer is too small,
-+           resume the thread, make the buffer bigger and try again. */
-+        for(;;) {
-+            if(!is_self)
-+                suspendThread(thread);
- 
--        last = thread->ee->last_frame;
-+            last = thread->ee->last_frame;
- 
--        if(last->prev != NULL) {
--            depth = countStackFrames(last, max_depth);
+         if(last->prev != NULL) {
+             depth = countStackFrames(last, max_depth);
 -            trace = alloca(depth * 2 * sizeof(void*));
-+            depth = last->prev == NULL ? 0
-+                                       : countStackFrames(last, max_depth);
- 
--            stackTrace2Buffer(last, trace, depth);
-+            if(depth <= size)
-+                break;
-+
-+            if(!is_self)
-+                resumeThread(thread);
-+
-+            sysFree(trace);
-+            size = depth + depth / 4 + 16;
-+            trace = sysMalloc(size * 2 * sizeof(void*));
+-
+             stackTrace2Buffer(last, trace, depth);
          }
  
-+        if(depth > 0)
-+            stackTrace2Buffer(last, trace, depth);
-+
-         if(in_native != NULL)
-             *in_native = last->prev == NULL ||
-                               last->mb->access_flags & ACC_NATIVE;
-@@ -873,7 +890,10 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
+@@ -873,7 +889,10 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
          enableSuspend(self);
      }
  

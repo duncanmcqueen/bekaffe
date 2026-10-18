@@ -211,7 +211,9 @@ verify bytecode, so it cannot safely run untrusted classes; the review looked fo
 that normal Java code can cause.
 
 - `getThreadInfo()` for a thread with a very deep stack crashed the VM, because the trace
-  buffer was on the native stack of the calling thread. `patches/jamvm/0003` fixes this.
+  buffer was on the native stack of the calling thread. `patches/jamvm/0003` fixes this:
+  stack traces of running threads now have a maximum of 4096 frames (the newest ones), and
+  the buffer is allocated before the thread lock is taken.
 - The class file parser does not check lengths, so a damaged class file can crash the VM
   instead of giving `ClassFormatError`. This is not fixed yet; see
   [ingelabs/jamvm#27](https://github.com/ingelabs/jamvm/issues/27).
