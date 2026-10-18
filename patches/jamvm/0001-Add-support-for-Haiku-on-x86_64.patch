@@ -1,4 +1,4 @@
-From 37831db5f9d67e12470fc6d4eb410593b120f11d Mon Sep 17 00:00:00 2001
+From f9135175ed10c6b7b26476d457b4ff6661fb22be Mon Sep 17 00:00:00 2001
 From: Duncan McQueen <dwmcqueen@gmail.com>
 Date: Fri, 16 Oct 2026 15:17:05 -0500
 Subject: [PATCH] Add support for Haiku on x86_64
@@ -7,9 +7,12 @@ Add Haiku (x86_64-*-haiku*) as a host:
 
 - configure.ac: the host case, and the Makefiles for src/os/haiku.
   Haiku has dlopen() in libroot, so libdl is not needed.
-- src/os/haiku/os.c: get the stack base, the number of CPUs and the
-  physical memory from the Haiku kernel kit (get_thread_info() and
-  get_system_info()). Haiku uses LIBRARY_PATH for native libraries.
+- src/os/haiku/os.c: get the stack base and the number of CPUs from
+  the Haiku kernel kit (get_thread_info() and get_system_info()).
+  nativePhysicalMemory() returns 0, so JamVM uses the fixed default
+  heap sizes: on Haiku, the mmap() of the maximum heap reserves the
+  full size against RAM and swap. Haiku uses LIBRARY_PATH for native
+  libraries.
 - src/os/haiku/x86_64: the same files as src/os/bsd/x86_64. Haiku uses
   the System V AMD64 calling convention.
 - src/class.c: the scandir() filter on Haiku takes a const argument.
@@ -24,12 +27,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/class.c                      |   2 +-
  src/os/Makefile.am               |   2 +-
  src/os/haiku/Makefile.am         |  28 ++++
- src/os/haiku/os.c                |  85 ++++++++++
+ src/os/haiku/os.c                |  87 ++++++++++
  src/os/haiku/x86_64/Makefile.am  |  26 +++
  src/os/haiku/x86_64/callNative.S | 269 +++++++++++++++++++++++++++++++
  src/os/haiku/x86_64/dll_md.c     |  57 +++++++
  src/os/haiku/x86_64/init.c       |  26 +++
- 9 files changed, 496 insertions(+), 2 deletions(-)
+ 9 files changed, 498 insertions(+), 2 deletions(-)
  create mode 100644 src/os/haiku/Makefile.am
  create mode 100644 src/os/haiku/os.c
  create mode 100644 src/os/haiku/x86_64/Makefile.am
@@ -118,10 +121,10 @@ index 0000000..82a1692
 +AM_CPPFLAGS = -I$(top_builddir)/src
 diff --git a/src/os/haiku/os.c b/src/os/haiku/os.c
 new file mode 100644
-index 0000000..65473be
+index 0000000..341db8b
 --- /dev/null
 +++ b/src/os/haiku/os.c
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,87 @@
 +/*
 + * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2009, 2014
 + * Robert Lougher <rob@jamvm.org.uk>.
@@ -172,13 +175,15 @@ index 0000000..65473be
 +    return info.cpu_count;
 +}
 +
++/* Return 0, so that JamVM uses the fixed default heap sizes.  JamVM
++   maps the whole maximum heap with one mmap() at startup.  On Haiku,
++   this mmap() reserves the full size against RAM and swap, even if the
++   pages are never used.  A maximum heap from the physical memory
++   (1 GB on most machines) would thus reserve 1 GB for each JamVM
++   instance.  Use -Xms and -Xmx to change the heap sizes. */
++
 +long long nativePhysicalMemory() {
-+    system_info info;
-+
-+    if(get_system_info(&info) != B_OK)
-+        return 0;
-+
-+    return (long long)info.max_pages * B_PAGE_SIZE;
++    return 0;
 +}
 +
 +char *nativeLibError() {

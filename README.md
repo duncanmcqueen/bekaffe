@@ -180,7 +180,10 @@ To build it:
 3. Build with `src/build-jamvm.sh` (set `B` and `CP_INSTALL` if your directories differ).
    It installs to `jamvm-install/`.
 4. Run: `src/run-jamvm.sh <Class>`. JamVM finds `glibj.zip` from its configure setting,
-   and the JNI libraries through `LIBRARY_PATH`.
+   and the JNI libraries through `LIBRARY_PATH`. The heap starts at 16 MB and can grow to
+   256 MB. For a larger heap, set `JAMVM_OPTS`, for example `JAMVM_OPTS=-Xmx1g`. (On Haiku,
+   JamVM reserves the whole maximum heap in RAM and swap at startup, so the default stays
+   small.)
 
 Results on Haiku R1/beta6 x86_64 (2026-10-16):
 
