@@ -102,7 +102,7 @@ Java drag source whether the drop was accepted (it reports a copy).
 | `src/build-classpath.sh`, `src/run-classpath.sh` | Build GNU Classpath with the peer on Haiku, and run with that build. |
 | `src/build-jamvm.sh`, `src/run-jamvm.sh` | Build JamVM on Haiku against that Classpath build, and run with JamVM. |
 | `sync.sh`, `runtest.sh`, `runav.sh` | Host scripts for a Haiku VM under QEMU (they use `../vm/vmssh.sh`, `mon.sh` and `shot.sh`). |
-| `patches/kaffe/` | The Kaffe port to Haiku x86_64 and the memory-safety fixes, as patches. The same changes are on the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe). |
+| `patches/kaffe/` | The Kaffe port to Haiku x86_64, the memory-safety fixes and a `Thread` constructor fix, as patches. The same changes are on the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe). |
 | `patches/jamvm/` | The JamVM port to Haiku x86_64, a fix that stops user class loaders from defining `java.*` classes, and a fix for a crash in stack traces of deep threads. Offered upstream as [ingelabs/jamvm#25](https://github.com/ingelabs/jamvm/pull/25), [#24](https://github.com/ingelabs/jamvm/pull/24) and [#26](https://github.com/ingelabs/jamvm/pull/26). |
 | `patches/classpath-ingelabs/` | Adds the peer to [ingelabs/classpath](https://github.com/ingelabs/classpath), with fixes that Kaffe on Haiku needs. |
 | `patches/classpath-0.98/` | The same for the GNU Classpath 0.98 release. |
@@ -128,8 +128,8 @@ You need Haiku x86_64, the OpenJDK 8 package (only for `javac`), and GCC.
    Classpath JNI libraries.
 2. Kaffe: clone the `haiku` branch of [duncanmcqueen/kaffe](https://github.com/duncanmcqueen/kaffe),
    a fork of the archived [kaffe/kaffe](https://github.com/kaffe/kaffe) with the Haiku port
-   and memory-safety fixes. (The same changes are in `patches/kaffe/`: apply 0001, 0002 and
-   0003 to `kaffe/kaffe` with `git apply`.) Configure with the
+   and memory-safety fixes. (The same changes are in `patches/kaffe/`: apply 0001 to 0004
+   to `kaffe/kaffe` with `git apply`.) Configure with the
    interpreter engine and `--with-classpath-classes=<Classpath>/share/classpath/glibj.zip`.
    Kaffe makes C headers from the Classpath classes (kaffeh) and compiles its
    `kaffe-vminterface.jar` against them, so build Kaffe after Classpath.
@@ -240,6 +240,11 @@ The Kaffe patches are working-tree snapshots, not clean upstream patches.
 - `0003-memory-safety-fixes.patch`: fixes for buffer overflows and reads past the end of a
   buffer in the class file reader, the verifier, UTF-8 string conversion, multi-dimensional
   arrays and the JNI symbol lookup (see `docs/development-notes.md`).
+- `0004-thread-constructor.patch`: Kaffe makes the `Thread` object of the main thread with
+  Classpath's `Thread(VMThread, String, int, boolean)` constructor, as the Classpath
+  maintainer suggested in [ingelabs/classpath#65](https://github.com/ingelabs/classpath/pull/65).
+  Before, Kaffe set only some fields from C: `Thread.locals` was null (each `ThreadLocal`
+  failed, and Kaffe stopped before `main()`) and `Thread.getId()` returned 0.
 - `patches/classpath-ingelabs/` (two commits: the peer and fixes, then native drawing)
   is a clean patch series for GNU Classpath. `patches/classpath-0.98/` is the older state
   of the same work (without native drawing) for the 0.98 release.
@@ -252,7 +257,7 @@ The Kaffe patches are working-tree snapshots, not clean upstream patches.
   (`DragSource` reused its first drag context for every drag, the drop events rejected
   all valid source actions, `DropTargetContext` returned no data flavors and no target
   actions). It also has fixes for building and running on Haiku: lazy `Thread.locals`
-  (Kaffe), the static field order in `ResolverCache`, `IFF_RUNNING`, a fallback when
+  (Kaffe; not needed with `patches/kaffe/0004`, and to be removed), the static field order in `ResolverCache`, `IFF_RUNNING`, a fallback when
   `gethostbyname_r` exists but is not declared, a `configure.ac` typo that made new autoconf
   versions miss `mmap`, and out-of-tree builds that put an empty sound mixer list in
   `glibj.zip`. With the regenerated `config.sub`, configure runs natively as

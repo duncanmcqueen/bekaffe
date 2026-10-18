@@ -1,0 +1,82 @@
+From 6de1bc046fa518016c15cc1a9c9a95e87f995c62 Mon Sep 17 00:00:00 2001
+From: duncanmcqueen <dwmcqueen@gmail.com>
+Date: Sun, 18 Oct 2026 08:31:00 -0500
+Subject: [PATCH] Make attached Thread objects with the Classpath constructor
+
+KaffeVM_attachFakedThreadInstance() made the Thread object of the main
+thread (and of threads that attach through JNI) with newObject() and set
+some fields from C. The fields that Kaffe does not know about kept their
+default values. With GNU Classpath 0.99 (ingelabs), Thread.locals was
+null, so each ThreadLocal on the main thread threw NullPointerException
+and Kaffe stopped before main(). Thread.getId() also returned 0.
+
+Use the Thread(VMThread, String, int, boolean) constructor that Classpath
+has for threads that start outside Java, as createDaemon() already does:
+make the VMThread, construct the Thread, then set the VMThread back
+pointer. The rest of the function does not change.
+
+Suggested by the GNU Classpath maintainer in ingelabs/classpath#65.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ kaffe/kaffevm/thread.c | 31 ++++++++++++++++++-------------
+ 1 file changed, 18 insertions(+), 13 deletions(-)
+
+diff --git a/kaffe/kaffevm/thread.c b/kaffe/kaffevm/thread.c
+index bb31a8b24..657ef691a 100644
+--- a/kaffe/kaffevm/thread.c
++++ b/kaffe/kaffevm/thread.c
+@@ -260,19 +260,30 @@ void
+ KaffeVM_attachFakedThreadInstance(const char* nm, int isDaemon)
+ {
+ 	Hjava_lang_Thread* tid;
++	Hjava_lang_VMThread* vmtid;
++	Hjava_lang_String* name;
+ 	jvalue retval;
+ 	int i;
+ 
+ 	DBG(VMTHREAD, dprintf("attachFakedThreadInstance(%s)\n", nm); );
+ 
+-	/* Allocate a thread to be the main thread */
+-	tid = (Hjava_lang_Thread*)newObject(ThreadClass);
+-	assert(tid != 0);
++	/* Make the Thread object with the constructor that Classpath has
++	 * for threads that start outside Java, as createDaemon() does.
++	 * The constructor sets the fields that Kaffe does not know about,
++	 * such as the thread-local map and the thread ID.
++	 */
++	vmtid = (Hjava_lang_VMThread*)newObject(VMThreadClass);
++	assert(vmtid != NULL);
+ 
+-	unhand(tid)->name = stringC2Java(nm);
+-	assert(unhand(tid)->name != NULL);
+-	unhand(tid)->priority = java_lang_Thread_NORM_PRIORITY;
+-	unhand(tid)->daemon = isDaemon;
++	name = stringC2Java(nm);
++	assert(name != NULL);
++
++	tid = (Hjava_lang_Thread*)
++	  execute_java_constructor(NULL, NULL,
++				   ThreadClass, "(Ljava/lang/VMThread;Ljava/lang/String;IZ)V",
++				   vmtid, name, java_lang_Thread_NORM_PRIORITY, isDaemon);
++	assert(tid != 0);
++	unhand(vmtid)->thread = tid;
+ 
+ 	/* use root group for this thread:
+ 	 * loop over all static fields of java.lang.ThreadGroup ...
+@@ -290,12 +301,6 @@ KaffeVM_attachFakedThreadInstance(const char* nm, int isDaemon)
+ 	/* finally complain if we did not find the field */
+ 	assert(unhand(tid)->group != NULL);
+ 
+-	unhand(tid)->runnable = NULL;
+-	unhand(tid)->vmThread = (Hjava_lang_VMThread *)
+-	  execute_java_constructor(NULL, NULL,
+-				   VMThreadClass, "(Ljava/lang/Thread;)V",
+-				   tid);
+-
+ 	/* set Java thread associated with main thread */
+ 	linkNativeAndJavaThread (KTHREAD(current)(), unhand(tid)->vmThread);
+ 
+-- 
+2.56.0
+
