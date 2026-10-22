@@ -1,4 +1,4 @@
-From 307a4d15d5b6debccc5b328fd7237d3477d99c39 Mon Sep 17 00:00:00 2001
+From 6c58041ef4d7cf086a7883e8bd111112ef32adb4 Mon Sep 17 00:00:00 2001
 From: Duncan McQueen <dwmcqueen@gmail.com>
 Date: Sat, 17 Oct 2026 14:40:16 -0500
 Subject: [PATCH] Do not put the stack trace of another thread on the native
@@ -12,23 +12,25 @@ thread with 100000 frames needs 1.6 MB, and the VM crashes with a
 segmentation fault.
 
 Limit the trace to 4096 frames (64 KB on 64-bit), and allocate the
-buffer with sysMalloc() before suspension is disabled and the thread
+buffer with malloc() before suspension is disabled and the thread
 lock is held.  A thread that cannot be suspended must not call malloc
 while it holds the thread lock: the GC may have stopped another thread
 inside malloc, and the GC needs the lock to restart the threads.  The
 specifications of Thread.getStackTrace() and ThreadInfo.getStackTrace()
-let a VM omit frames.
+let a VM omit frames.  If malloc() fails, signal OutOfMemoryError
+instead of exiting the VM.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Duncan McQueen <dwmcqueen@gmail.com>
 ---
- src/thread.c | 27 +++++++++++++++++++++++----
- 1 file changed, 23 insertions(+), 4 deletions(-)
+ src/thread.c | 31 ++++++++++++++++++++++++++++---
+ 1 file changed, 28 insertions(+), 3 deletions(-)
 
 diff --git a/src/thread.c b/src/thread.c
-index 56ae35e..f52283b 100644
+index 56ae35e..478accc 100644
 --- a/src/thread.c
 +++ b/src/thread.c
-@@ -833,12 +833,30 @@ void createVMThread(char *name, void (*start)(Thread*)) {
+@@ -833,12 +833,36 @@ void createVMThread(char *name, void (*start)(Thread*)) {
      pthread_mutex_unlock(&lock);
  }
  
@@ -47,8 +49,7 @@ index 56ae35e..f52283b 100644
  Object *runningThreadStackTrace(Thread *thread, int max_depth,
                                                  int *in_native) {
      int depth = 0;
--    void **trace = NULL;
-+    void **trace;
+     void **trace = NULL;
      Thread *self = threadSelf();
      int is_self = thread == self;
 +    Object *elements;
@@ -56,11 +57,17 @@ index 56ae35e..f52283b 100644
 +    if(max_depth < 0 || max_depth > MAX_STACK_TRACE_DEPTH)
 +        max_depth = MAX_STACK_TRACE_DEPTH;
 +
-+    trace = sysMalloc(max_depth * 2 * sizeof(void*));
++    if(max_depth > 0) {
++        trace = malloc(max_depth * 2 * sizeof(*trace));
++        if(trace == NULL) {
++            signalException(java_lang_OutOfMemoryError, NULL);
++            return NULL;
++        }
++    }
  
      if(!is_self) {
          disableSuspend(self);
-@@ -855,8 +873,6 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
+@@ -855,8 +879,6 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
  
          if(last->prev != NULL) {
              depth = countStackFrames(last, max_depth);
@@ -69,13 +76,13 @@ index 56ae35e..f52283b 100644
              stackTrace2Buffer(last, trace, depth);
          }
  
-@@ -873,7 +889,10 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
+@@ -873,7 +895,10 @@ Object *runningThreadStackTrace(Thread *thread, int max_depth,
          enableSuspend(self);
      }
  
 -    return convertTrace2Elements(trace, depth * 2);
 +    elements = convertTrace2Elements(trace, depth * 2);
-+    sysFree(trace);
++    free(trace);
 +
 +    return elements;
  }
