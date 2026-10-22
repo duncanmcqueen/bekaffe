@@ -11,4 +11,5 @@ export KAFFEHOME=$B/cp-install
 export KAFFELIBRARYPATH="$P/lib:$N/java-nio/.libs:$N/java-io/.libs:$N/java-lang/.libs:$N/java-util/.libs:$N/java-net/.libs:$N/native-lib/.libs:$PWD/kaffe/kaffevm/.libs"
 export BOOTCLASSPATH="$P/classes:$VMJ:$GLIBJ"
 exec ./kaffe/kaffe/kaffe-bin $KAFFE_OPTS -Dawt.toolkit=gnu.java.awt.peer.haiku.HaikuToolkit \
+  -Djava.awt.printerjob=gnu.java.awt.peer.haiku.HaikuPrinterJob \
   -classpath "$VMJ:$GLIBJ:$P/testclasses" "$@"

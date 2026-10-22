@@ -14,7 +14,9 @@ AWT and Swing programs and JDK 1.0/1.1 applets run in native Haiku windows.
   Kaffe. See [JamVM](#jamvm-work-in-progress).
 - Class library: GNU Classpath 0.98.
 - The peer is `gnu.java.awt.peer.haiku`. Select it with
-  `-Dawt.toolkit=gnu.java.awt.peer.haiku.HaikuToolkit`.
+  `-Dawt.toolkit=gnu.java.awt.peer.haiku.HaikuToolkit`. For printing with the Haiku print
+  server, also give `-Djava.awt.printerjob=gnu.java.awt.peer.haiku.HaikuPrinterJob`
+  (the launchers in `src/` do this).
 
 The name comes from the [BeKaffe project](http://bekaffe.sourceforge.net/) (1999), which
 ported Kaffe 1.0 with its own AWT to BeOS. This peer is new code for the Classpath peer model.
